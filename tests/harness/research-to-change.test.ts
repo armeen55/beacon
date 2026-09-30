@@ -345,7 +345,7 @@ describe("the subject the winning page carries and this page does not", () => {
     if (path.startsWith("on_page/content_parsing")) { state.parsed.push(String((payload as { url?: string }[] | null)?.[0]?.url ?? ""));
       return { body: { status_code: 20000, cost: 0.002, tasks: [{ status_code: 20000, result: [{ items: [{ page_content: { main_topic: [{ main_title: "List of Iranians", h_title: SUBJECT, primary_content: [{ text: SAYS }] }] } }] }] }] } }; }
     return searchScript(state)(path); };
-  it.each(["missing", "published", "legacy", "cached", "partial", "expired", "undated"] as const)("15: refreshes the exact known %s finding despite a broader query, and reuses it without another provider call", async (mode) => {
+  it.each(["missing", "published", "legacy", "cached", "partial", "expired", "undated"] as const)("15: qualifies the exact known %s finding despite a broader query, without reviving superseded published statements", async (mode) => {
     seedResearchState(basis, { serps: serpFor(QUERY), winningPages: [] });
     const state = { ready: true, posts: 0, parsed: [] as string[] }; script.search = factScript(state);
     script.page = (url) => url === RIVAL ? { html: `<html><head><title>List of Iranians</title></head><body><main><h1>List of Iranians</h1><h2>${SUBJECT}</h2><p>${SAYS}</p></main></body></html>` } : pageScript(url);
@@ -358,12 +358,21 @@ describe("the subject the winning page carries and this page does not", () => {
     const key = mode === "legacy" ? "scientists" : claimIdentity(SUBJECT, current, locator), hash = pageHashOf([owner.title, owner.h1, ...owner.headings, ...owner.passages].filter(Boolean).join("\n"));
     const facts = await import("@/domains/evidence/pages/fact-checks"); await facts.recordOwedClaims(T, HUB, [{ statementKey: key, subject: SUBJECT, current, locator }], hash, evidenceBasis);
     if (mode === "published") await facts.recordFactChecks(T, HUB, [{ ...(await readFactChecks(T)).find(f => f.statementKey === key)!, state: "superseded", pageContentHash: "older-owned-version", evidenceBasis: "older-basis", rulesVersion: 0 }]);
-    const need = { kind: "factual_source" as const, query: `${SUBJECT} ${QUERY}`, url, missingTopic: SUBJECT, rivalUrl: RIVAL, reasonCode: "source_support_unconfirmed", finding: { tenantId: T, page: HUB, statementKey: key }, workKey: "harness-fact-work" };
+    const need = { kind: "factual_source" as const, query: `${SUBJECT} ${QUERY}`, url, missingTopic: SUBJECT, rivalUrl: RIVAL, reasonCode: "source_support_unconfirmed", finding: { tenantId: T, page: HUB, statementKey: key }, workKey: "harness-fact-work" }, publishedBefore = JSON.stringify(table("page_source_facts").filter(r => r.page_key === HUB && r.statement_key === key)), providersBefore = [meter.requests.length, reasoningAsked.length, state.parsed.length, state.posts];
     const first = await defaultSteps.acquireEvidence(T, need, evidenceBasis, 90_000);
     const held = await readFactChecks(T), original = held.find(f => f.statementKey === key);
+    if (mode === "published") {
+      expect([first.acquired, first.attempted, JSON.stringify(table("page_source_facts").filter(r => r.page_key === HUB && r.statement_key === key)), [meter.requests.length, reasoningAsked.length, state.parsed.length, state.posts], held.filter(f => f.state !== "superseded").length]).toEqual([false, false, publishedBefore, providersBefore, 0]);
+      const missing = claimIdentity(SUBJECT, "", "missing"); await facts.recordOwedClaims(T, HUB, [{ statementKey: missing, subject: SUBJECT, current: "", locator: "missing" }], hash, evidenceBasis);
+      const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [{ ...need, key: `${HUB}::known-published`, workKey: "known-published", rank: 1 }, { ...need, finding: { ...need.finding, statementKey: missing }, key: `${HUB}::known-missing`, workKey: "known-missing", rank: 2 }] }), providersAfter = [meter.requests.length, reasoningAsked.length, state.parsed.length, state.posts], snapshot = table("page_snapshots").find(r => r.url === url)!;
+      expect([(await readFactChecks(T)).find(f => f.statementKey === missing)?.state, JSON.stringify(table("page_source_facts").filter(r => r.page_key === HUB && r.statement_key === key)), acquisitions(run).filter(a => a.kind === "factual_source" && a.key.includes("::known-")).map(a => a.outcome)]).toEqual(["checked", publishedBefore, ["deferred", "unlocked"]]);
+      Object.assign(snapshot, { body_text: "Current content no longer carries the original claimed passage.", body_paragraph_sample: [], h1: "An updated published title", content_hash: "new-body-version" });
+      expect(await defaultSteps.acquireEvidence(T, { ...need, finding: { ...need.finding, sourceVersion: original?.sourceVersion } }, evidenceBasis, 90_000)).toMatchObject({ acquired: false });
+      expect([[meter.requests.length, reasoningAsked.length, state.parsed.length, state.posts], JSON.stringify(table("page_source_facts").filter(r => r.page_key === HUB && r.statement_key === key))]).toEqual([providersAfter, publishedBefore]); return;
+    }
     expect([first.acquired, original?.state, original?.subject, original?.current, original?.pageLocator, original?.statementKey, held.filter(f => f.state !== "superseded").length],
       "Only the originating statement settles; no empty-current or query-expanded replacement is invented.").toEqual([true, "checked", SUBJECT, current, locator, key, 1]);
-    expect(first.unlocked).toBe(mode !== "published");
+    expect(first.unlocked).toBe(true);
     expect(held.filter(f => f.state === "superseded").every(f => f.statementKey.startsWith(`${key}~src`) && f.page === HUB)).toBe(true);
     expect([original?.pageContentHash, original?.evidenceBasis, original?.rulesVersion, original?.sourceReadAt != null]).toEqual([hash, evidenceBasis, rulesVersionFor({ subject: SUBJECT, current }), true]);
     expect([state.parsed.length, mode === "cached" ? original?.sourceReadAt : sourceAt], "A complete dated source is reused without parsing; partial or expired evidence cannot masquerade as that complete read, and cached source age is not reset.").toEqual([mode === "cached" ? 0 : 1, sourceAt]);
@@ -371,15 +380,6 @@ describe("the subject the winning page carries and this page does not", () => {
     expect(await defaultSteps.acquireEvidence(T, need, evidenceBasis, 90_000)).toMatchObject({ acquired: true, unlocked: first.unlocked });
     for (const axis of [{ tenantId: "foreign-tenant" }, { page: "/another-owner" }, { statementKey: "not-inventoried" }]) expect(await defaultSteps.acquireEvidence(T, { ...need, finding: { ...need.finding, ...axis } }, evidenceBasis, 90_000)).toMatchObject({ acquired: false });
     expect([reasoningAsked.length, state.parsed, state.posts]).toEqual([count, parsed, posts]);
-    if (mode === "published") {
-      const missing = claimIdentity(SUBJECT, "", "missing"); await facts.recordOwedClaims(T, HUB, [{ statementKey: missing, subject: SUBJECT, current: "", locator: "missing" }], hash, evidenceBasis);
-      const run = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [{ ...need, key: `${HUB}::known-published`, workKey: "known-published", rank: 1 }, { ...need, finding: { ...need.finding, statementKey: missing }, key: `${HUB}::known-missing`, workKey: "known-missing", rank: 2 }] });
-      expect([(await readFactChecks(T)).find(f => f.statementKey === missing)?.state, acquisitions(run).filter(a => a.kind === "factual_source" && a.key.includes("::known-")).map(a => a.outcome)]).toEqual(["checked", ["read_not_usable", "unlocked"]]);
-      const calls = reasoningAsked.length, reads = [...state.parsed], snapshot = table("page_snapshots").find(r => r.url === url)!;
-      Object.assign(snapshot, { body_text: "Current content no longer carries the original claimed passage.", body_paragraph_sample: [], h1: "An updated published title", content_hash: "new-body-version" });
-      expect(await defaultSteps.acquireEvidence(T, need, evidenceBasis, 90_000)).toMatchObject({ acquired: false });
-      expect([reasoningAsked.length, state.parsed, (await readFactChecks(T)).find(f => f.statementKey === key)?.current]).toEqual([calls, reads, current]);
-    }
   });
 });
 
