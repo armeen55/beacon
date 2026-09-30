@@ -34,7 +34,7 @@ collectionCoverage.rosters = (capture: { complete: boolean; mainHtml: string } |
     const items = element.children("li,article,[role=listitem],.wixui-repeater__item");
     if (!owner || FURNITURE_LABEL.test(owner) || items.length < 2 || items.length !== element.children().length || element.parents("ul,ol,[role=list]").length) return;
     const entries = items.toArray().map(item => { const held = full(item), name = held.find("h1,h2,h3,h4,h5,h6,p").first().text().replace(/\s+/g, " ").trim(), text = held.text().replace(/\s+/g, " ").trim(); return { heading: name, text: text.startsWith(name) ? text.slice(name.length).trim() : "" }; });
-    if (entries.every(e => e.heading && e.heading.length <= 90 && !/[.!?:]/.test(e.heading) && e.heading.split(/\s+/).every(w => /^\p{Lu}/u.test(w)) && !FURNITURE_LABEL.test(e.heading))) rosters.push({ heading: owner, entries });
+    if (entries.every(e => e.heading && e.heading.length <= 90 && !/[.!?:]/.test(e.heading.replace(/(?:^|\s)\p{Lu}\.(?=\s|$)/gu, " ")) && !FURNITURE_LABEL.test(e.heading))) rosters.push({ heading: owner, entries });
   });
   const aliases = [...promise.matchAll(/(\p{L}+)\s*\((\p{L}+)\)/gu)];
   const scope = (heading: string): string => aliases.reduce((text, [, a, b]) => text.replace(new RegExp(`\\b(?:${a}|${b})\\b`, "gi"), `${a} ${b}`), heading);
