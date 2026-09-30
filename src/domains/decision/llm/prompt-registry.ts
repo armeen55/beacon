@@ -36,7 +36,8 @@ export const PROMPT_REGISTRY = {
   "draft.fact_claim_extraction": 1,
   "draft.fact_claim_judgement": 3, // v2 (2026-08-29): every supporting source returns its own support ruling with verbatim spans (claim-support artifact v2), so a cached v1 answer cannot satisfy the new contract
   // The new page brief (N4, 2026-07-28): the one call an EARNED create_new verdict may make. It writes the page, never the decision that the page should exist.
-  "draft.new_page_brief": 1,
+  "draft.new_page_brief": 2,
+  "draft.new_page_support": 1,
   // Reading one AI engine's answer back (2026-07-31, V1 Truth Convergence Phase 1): what it said, who it named, what it left out. It restates the answer and
   // decides nothing, so the wording that forbids inventing is the whole contract and any change to it must bump this version.
   "draft.answer_analysis": 1,

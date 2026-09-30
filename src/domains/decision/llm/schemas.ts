@@ -95,14 +95,14 @@ const NewPageBriefSchema = z.object({
   /** The answer a searcher gets in the first paragraph, before anything else. */
   openingAnswer: z.string().min(60).max(800),
   /** Evidence ids, copied EXACTLY from the supplied list, that the title, description and opening answer rest on. One generic set stapled on afterwards proved none of them. */
-  headKeys: z.array(z.string().min(1).max(40)).min(1).max(8),
+  headKeys: z.array(z.string().min(1).max(40)).max(8),
   /** Why the pages this account already owns cannot carry this. Must name one of them. */
   whyExistingPagesLose: z.string().min(20).max(500),
   sections: z.array(z.object({
     heading: z.string().min(3).max(120),
     covers: z.string().min(20).max(400),
     /** Evidence ids copied EXACTLY from the supplied list. */
-    evidenceKeys: z.array(z.string().min(1).max(40)).min(1).max(8),
+    evidenceKeys: z.array(z.string().min(1).max(40)).max(8),
   })).min(1).max(8),
   /** What the writer must cite, and what must be checked before this goes live. */
   sourceRequirements: z.array(z.string().min(10).max(240)).max(6),
@@ -186,7 +186,7 @@ export type StructuredDraftKind =
   | "body_edit"
   | "atomic_edit"
   | "editor_judgement" | "page_acceptance"
-  | "new_page_brief" | "answer_analysis" | "answer_analysis_batch" | "case_synthesis" | "winning_pattern" | "page_job"
+  | "new_page_brief" | "new_page_support" | "answer_analysis" | "answer_analysis_batch" | "case_synthesis" | "winning_pattern" | "page_job"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates"
   | "fact_claim_extraction" | "fact_claim_judgement" | "factual_review";
 
@@ -230,6 +230,8 @@ export const SCHEMA_BY_KIND = {
   fact_claim_judgement: FactClaimJudgementSchema,
   factual_review: FactualReviewSchema,
   body_edit: BodyEditDraftSchema, atomic_edit: AtomicEditDraftSchema, new_page_brief: NewPageBriefSchema,
+  new_page_support: z.object({ rulings: z.array(z.object({ task: z.number().int().nonnegative(), supported: z.boolean(),
+    by: z.array(z.string().min(1).max(40)), missing: z.string().min(3).max(400).nullable() })).min(1).max(21) }),
   answer_analysis: AnswerAnalysisSchema, answer_analysis_batch: AnswerAnalysisBatchSchema, case_synthesis: CaseSynthesisSchema, winning_pattern: WinningPatternSchema,
   page_job: PageJobSchema,
   business_profile_inference: BusinessProfileInferenceSchema,

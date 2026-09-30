@@ -1,3 +1,4 @@
+import { sourceBoundPage } from "../helpers/publication-draft";
 import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof"; import { componentIdOf } from "@/domains/decision/contracts";
 vi.mock("next/server", async () => ({ ...(await vi.importActual<Record<string, unknown>>("next/server")), after: (fn: () => unknown) => { void fn(); } }));
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -17,18 +18,12 @@ const { ownerFlag, mocks } = vi.hoisted(() => ({
 vi.mock("@/lib/auth/can-publish", () => ({
   isAccountOwner: async () => ownerFlag.value,
   canPublishForCurrentTenant: async () => ownerFlag.value,}));
-vi.mock("@/domains/decision", async () => ({
-  loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
-  loadChangeProposal: mocks.loadChangeProposal, proposalDisposition: async () => null, implementationGuard: mocks.implementationGuard,
-  resolveCurrentBasis: mocks.resolveCurrentBasis,
-  actionableProposalFailures: (await vi.importActual<typeof import("@/domains/decision/validate-proposal")>("@/domains/decision/validate-proposal")).actionableProposalFailures,
-  openHold: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).openHold, // the REAL one servability verdict, exactly as production gates the press
-  dangerousComponents: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).dangerousComponents,
-  componentIdOf: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).componentIdOf,
-  deliverableGaps: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).deliverableGaps, unsettledCause: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).unsettledCause,
-  sameComponentId: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).sameComponentId,
-  confirmedVersion: () => "fixture-version",
-  treatmentSignatureOf: (await vi.importActual<typeof import("@/domains/decision/mutation-footprint")>("@/domains/decision/mutation-footprint")).treatmentSignatureOf,})); // THE REAL ONE: the press stamps what kind of work it was, so a mock of it would prove nothing about what lands on the record
+vi.mock("@/domains/decision", async () => {
+  const real = await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision");
+  const guards = Object.fromEntries(["actionableProposalFailures", "openHold", "dangerousComponents", "componentIdOf", "deliverableGaps", "unsettledCause", "sameComponentId", "treatmentSignatureOf"].map(key => [key, real[key as keyof typeof real]]));
+  return { ...guards, loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
+    loadChangeProposal: mocks.loadChangeProposal, proposalDisposition: async () => null, implementationGuard: mocks.implementationGuard,
+    resolveCurrentBasis: mocks.resolveCurrentBasis, confirmedVersion: () => "fixture-version" }; });
 vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: () => ({}) }) }));
 vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), getTenant: async () => ({ id: "tenant-test", domain: "x.test" }) }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
@@ -172,9 +167,9 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     arrange();
     expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(false); expect(mocks.recordShipment).not.toHaveBeenCalled();});});
 describe("a complete new page is one recorded publication", () => {
-  const sections = ["When it runs", "Where to watch"], opening = "The kite festival runs the first weekend of April.";
-  const page = () => proposal({ kind: "new_page", informationGain: { adds: "the page answers an uncovered reader task", by: ["fact-1"], pageWhole: true }, pagePath: null, pageUrl: null, recommendedChange: { kind: "new_page", proposedTitle: "Kite festival guide", metaDescription: "A guide to the kite festival dates, viewing places, and what visitors can expect.", openingAnswer: opening, outline: sections, faqQuestions: [], schemaTypes: [] },
-    newPageDraft: { brief: { proposedTitle: "Kite festival guide", pageHeading: "Kite festival dates and places", sections: sections.map(heading => ({ heading })) }, pieces: [{ slot: 0, after: opening }, ...sections.map((heading, i) => ({ slot: i + 1, heading, after: `${heading}: ${opening}` }))] }, bundle: { ...proposal().bundle, components: [{ kind: "title", label: "Page title", after: "Kite festival guide", risk: "safe", evidenceKeys: ["k1"] }, { kind: "meta", label: "Meta description", after: "A guide to the kite festival dates, viewing places, and what visitors can expect.", risk: "safe", evidenceKeys: ["k1"] }, { kind: "h1", label: "Page heading (H1)", after: "Kite festival dates and places", risk: "safe", evidenceKeys: ["k1"] }, { kind: "opening_answer", label: "Opening answer", after: opening, risk: "safe", evidenceKeys: ["k1"] }, ...sections.map(h => ({ kind: "section", label: h, after: `${h}\n\n${h}: ${opening}`, risk: "safe", evidenceKeys: ["k1"] }))] } });
+  const sections = ["When it runs", "Where to watch"], opening = "The kite festival runs the first weekend of April, with viewing areas at the harbor and park.";
+  const page = () => sourceBoundPage(proposal({ kind: "new_page", informationGain: { adds: "the page answers an uncovered reader task", by: ["fact-1"], pageWhole: true }, pagePath: null, pageUrl: null, recommendedChange: { kind: "new_page", proposedTitle: "Kite festival guide", metaDescription: "A guide to the kite festival dates, viewing places, and what visitors can expect.", openingAnswer: opening, outline: sections, faqQuestions: [], schemaTypes: [] },
+    bundle: { ...proposal().bundle, components: [{ kind: "title", label: "Page title", after: "Kite festival guide", risk: "safe", evidenceKeys: ["k1"] }, { kind: "meta", label: "Meta description", after: "A guide to the kite festival dates, viewing places, and what visitors can expect.", risk: "safe", evidenceKeys: ["k1"] }, { kind: "h1", label: "Page heading (H1)", after: "Kite festival dates and places", risk: "safe", evidenceKeys: ["k1"] }, { kind: "opening_answer", label: "Opening answer", after: opening, risk: "safe", evidenceKeys: ["k1"] }, ...sections.map(h => ({ kind: "section", label: h, after: `${h}\n\n${h}: ${opening}`, risk: "safe", evidenceKeys: ["k1"] }))] } }) as unknown as ChangeProposal);
   it("refuses a duplicate that hides the H1 or a section before any Shipment write", async () => {
     const row = page(), parts = row.bundle!.components, ids = parts.map(componentIdOf); mocks.loadChangeProposal.mockResolvedValue(row); const missingH1 = await markProposalImplementedAction({ ...PRESS, liveUrl: "https://x.test/kite", componentIds: [ids[0]!, ids[1]!, ids[3]!, ids[4]!, ids[5]!, ids[4]!] });
     const missingSection = await markProposalImplementedAction({ ...PRESS, liveUrl: "https://x.test/kite", componentIds: [ids[0]!, ids[1]!, ids[2]!, ids[3]!, ids[4]!, ids[4]!] }); expect([missingH1.error, missingSection.error, mocks.recordShipment.mock.calls.length]).toEqual(["A new page is one complete publication. Apply and record every component together.", "A new page is one complete publication. Apply and record every component together.", 0]); const noUrl = await markProposalImplementedAction({ ...PRESS, componentIds: ids }); expect(noUrl.success).toBe(false); const complete = await markProposalImplementedAction({ ...PRESS, liveUrl: "https://x.test/kite", componentIds: ids }); expect([complete.success, mocks.recordShipment.mock.calls.length]).toEqual([true, 1]);
