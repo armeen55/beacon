@@ -28,14 +28,14 @@ const reading = (over: Partial<WinningPatternRead> = {}): WinningPatternRead => 
   openingPattern: "Each of them answers the question plainly in its first sentence before it explains anything else.",
   ownedGaps: [{ gap: "your page never explains how one is made", seenOn: [0, 1, 2] }],
   disagreements: ["Some of them treat the region as the subject and others treat the craft as the subject."],
-  uniqueNotCommon: [{ detail: "one of them lays the knot counts out in a table", seenOn: [1] }], ...over,});
+  ...over,});
 const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { httpAttempts: 1, value }; } }; }; // A SEAM ANSWERS FOR THE TRANSPORT EXACTLY AS THE GATEWAY DOES (reviewer, 2026-09-06): it stamps `httpAttempts` 0 before the wire and 1 once it is touched, and a stand-in that reports nothing is saying no request left the process, which is now the one thing that hands an attempt back.
 const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCacheEntry>(); return { read: async (t, k) => rows.get(`${t}|${k}`) ?? null, write: async (t, e) => void rows.set(`${t}|${e.key}`, e), recentTexts: async () => [] }; };
 describe("the held content reaches the funded reader", () => {
   it("keeps body-only information, capture uncertainty and actual schema observations distinct", async () => {
     const held = extractPageFacts([page("a.example", [CARE], { entityNames: [], schemaTypes: ["FAQPage"] }), page("b.example", [CARE], { schemaTypes: [], truncated: true }), { url: "https://c.example/rugs", extract: pageExtractFrom({ title: "Persian rugs", h1: null, word_count: 900, schema_entity_names: ["Tabriz"] }) }]);
     let shown = "";
-    await readWinningPattern(held, ownedFacts(), "fixture", { complete: async ({ user }) => { shown = user; return { httpAttempts: 1, value: reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], uniqueNotCommon: [] }) }; } });
+    await readWinningPattern(held, ownedFacts(), "fixture", { complete: async ({ user }) => { shown = user; return { httpAttempts: 1, value: reading({ commonHeadings: [], commonEntities: [], ownedGaps: [] }) }; } });
     expect(held.map((f) => [f.hasSchema, f.scope])).toEqual([[true, "complete"], [false, "partial"], [null, "unknown"]]);
     expect(shown, "one complete publisher plus two incomplete reads is unknown and never spends on a fake comparison").toBe("");
     const capture = (mainHtml: string, complete: boolean) => ({ version: 1 as const, mainHtml, complete, jsonLd: [] }), blocks = "<ul><li>Wool</li></ul><table><tr><td>Silk</td></tr></table>";
@@ -69,17 +69,17 @@ describe("a ranked page with a different intent teaches nothing", () => {
     const since = (domain: string) => page(domain, ["The flag since the revolution", "Colours and emblem today"], { title: "The flag today", h1: "The flag today", openingSample: "The present flag was adopted after the revolution and has not changed since.", entityNames: ["Tehran"] });
     const before = (domain: string) => page(domain, ["The flag before the revolution", "The lion and sun"], { title: "The flag before 1979", h1: "The flag before 1979", openingSample: "Before 1979 the flag carried the lion and sun at its centre.", entityNames: ["Lion and Sun"] });
     const mixed = extractPageFacts([before("a.example"), since("b.example"), before("c.example"), since("d.example")]);
-    const asked = seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], uniqueNotCommon: [], disagreements: [], questionsAnswered: [] }));
+    const asked = seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], disagreements: [], questionsAnswered: [] }));
     const observed: string[] = [], out = await readWinningPattern(mixed, ownedFacts(), tenant, { complete: asked.complete, label: "iran flag before 1979", onOutcome: x => { observed.push(x); } });
     expect([out, asked.calls(), observed], "two of the four answer the period the search never asked about, so under three publishers nothing is read and nothing is spent").toEqual([null, 0, ["insufficient_winners"]]);
     const allBefore = extractPageFacts([before("a.example"), before("c.example"), before("e.example"), before("f.example")]);
-    const paid = seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], uniqueNotCommon: [], disagreements: [], questionsAnswered: [] }));
+    const paid = seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], disagreements: [], questionsAnswered: [] }));
     const accepted: string[] = [], taught = await readWinningPattern(allBefore, ownedFacts(), tenant, { complete: paid.complete, label: "iran flag before 1979", onOutcome: x => { accepted.push(x); } });
     expect([taught?.winners, taught?.publishers, accepted], "four pages that do answer that period are read exactly as before").toEqual([4, ["a.example", "c.example", "e.example", "f.example"], ["accepted"]]);
     const idioms = seam(reading()); // THE FALSIFIER: a rival titled "Persian Idioms" is the SAME question in different words, and a rule about shared vocabulary dropped it. This one asks nothing of a search that names no relation.
     const sameQuestion = await readWinningPattern(extractPageFacts([page("idioms.example", ["What a Persian idiom is", MADE, CARE], { title: "Persian Idioms", h1: "Persian Idioms" }), WINNERS[1]!, WINNERS[2]!, WINNERS[3]!]), ownedFacts(), tenant, { complete: idioms.complete, label: "funny persian phrases" });
     expect([sameQuestion?.winners, sameQuestion?.publishers[0]], "a search naming no relation asks nothing of a rival, so the differently worded page still teaches").toEqual([4, "idioms.example"]);
-    const unlabelled = seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], uniqueNotCommon: [], disagreements: [], questionsAnswered: [] })); const nothingAsked = await readWinningPattern(mixed, ownedFacts(), tenant, { complete: unlabelled.complete });
+    const unlabelled = seam(reading({ commonHeadings: [], commonEntities: [], ownedGaps: [], disagreements: [], questionsAnswered: [] })); const nothingAsked = await readWinningPattern(mixed, ownedFacts(), tenant, { complete: unlabelled.complete });
     expect(nothingAsked?.winners, "and a case with no search on file compares no intents at all, exactly as before").toBe(4); });
 });
 describe("the one reading a case may buy", () => {
@@ -90,7 +90,7 @@ describe("the one reading a case may buy", () => {
   it("throws the WHOLE reading away for a stranger, a quotation, or a claim no page it cited carries", async () => {
     const RUN = "a hand knotted floor covering woven in Iran"; // A pattern is an abstraction: it may cite only pages I showed it, it may not hand a line back word for word (in ANY field, including the four the run check never used to read), and it may not claim a section or a named thing is on a page that does not carry it. Eight words in a row IS that page's line.
     const swapped = MADE.replace("villages", "towns"); // one word swapped is still their line, and 65 chars
-    const bad: Partial<WinningPatternRead>[] = [
+    const bad: Array<Partial<WinningPatternRead> & { uniqueNotCommon?: unknown }> = [
       { commonHeadings: [{ heading: "how one is made", seenOn: [0, 4] }] },              // a page I never showed it
       { ownedGaps: [{ gap: "your page never explains how one is made", seenOn: [9] }] },
       { commonEntities: [{ entity: "Tabriz", seenOn: [0, 7] }] },
@@ -100,10 +100,10 @@ describe("the one reading a case may buy", () => {
       { disagreements: [`Some of them treat ${RUN} as the subject and others do not.`] },
       { ownedGaps: [{ gap: `your page never says ${RUN}`, seenOn: [0, 1, 2] }] },
       { questionsAnswered: [`What is ${RUN}?`] },
-      { uniqueNotCommon: [{ detail: `one of them opens by calling it ${RUN}`, seenOn: [1] }] },
+      { uniqueNotCommon: [{ detail: `one page falsely carries ${RUN}`, seenOn: [1] }] },
       { commonHeadings: [{ heading: "shipping and returns", seenOn: [0, 1] }] },         // on no page it cited
       { commonEntities: [{ entity: "Isfahan", seenOn: [0] }] },];
-    for (const one of bad) { const observed: string[] = [], result = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading(one)).complete, onOutcome: x => { observed.push(x); } }); expect([result, observed], JSON.stringify(one)).toEqual([null, ["refused"]]); }
+    for (const one of bad) { const observed: string[] = [], result = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading(one)).complete, onOutcome: x => { observed.push(x); } }); expect([result, observed], JSON.stringify(one)).toEqual([null, ["uniqueNotCommon" in one ? "model_failed" : "refused"]]); }
     const good = await readWinningPattern(extractPageFacts([...WINNERS, page("archive.example", [MADE, CARE])]), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, label: "persian rug care" }); const b = good?.brief, first = b?.sources[0], delta = b?.deltas.find((d) => d.dimension === "owned_delta"), question = b?.deltas.find((d) => d.dimension === "questions"), opening = b?.deltas.find((d) => d.dimension === "opening"); expect([good?.publishers.length, b?.query, first && [first.url, first.passage, first.title, first.meta, first.h1, first.opening, first.sections.length, first.entities?.[0], first.list, first.table, first.schema?.[0], first.links.internal, first.links.external, first.citations[0]?.query, first.freshness], delta && [delta.action, delta.sources.length, delta.confidence], b?.owed]).toEqual([5, "persian rug care", ["https://guide.example/persian-rugs", "A Persian rug is a hand knotted floor covering woven in Iran by families who have done it for generations.", "Persian rugs explained", "Learn the craft and care of Persian rugs.", "Persian rugs explained", "A Persian rug is a hand knotted floor covering woven in Iran by families who have done it for generations.", 3, "Tabriz", true, false, "Article", 7, 2, "persian rug care", "2026-07-20T00:00:00.000Z"], ["resolve_reader_delta", 3, "bounded_reader"], expect.arrayContaining(["title", "meta", "h1", "list", "table", "schema", "links"])]); expect([question?.sources.length, opening?.sources.length, delta?.sources.every((id) => b?.sources.some((source) => source.sourceId === id && !!source.url && !!source.publisher && !!source.passage))]).toEqual([3, 5, true]); }); // And an honest reading survives all of it, so every refusal above is about the defect and nothing else.
   it("never re-votes a shape the results already settled, and writes no gap about a page it was never shown", async () => {
     expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "list" })).toBeNull(); // The reading says informational_guide; the results counted a list, and the deterministic count wins.
@@ -111,7 +111,7 @@ describe("the one reading a case may buy", () => {
     expect(await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading()).complete })).toBeNull(); const quiet = await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading({ ownedGaps: [] })).complete }); // With no page of my own supplied, "your page has no care section" is about a page it never saw.
     expect([quiet?.ownedGaps, quiet?.winners]).toEqual([[], 4]); });
   it("accepts a strict majority only after three distinct complete publishers are readable", async () => {
-    const three = extractPageFacts([WINNERS[0]!, WINNERS[2]!, WINNERS[1]!]), majority = reading({ commonHeadings: [{ heading: CARE, seenOn: [0, 1] }], commonEntities: [], ownedGaps: [], uniqueNotCommon: [] }), accepted = await readWinningPattern(three, ownedFacts(), "t_fixture", { complete: seam(majority).complete });
+    const three = extractPageFacts([WINNERS[0]!, WINNERS[2]!, WINNERS[1]!]), majority = reading({ commonHeadings: [{ heading: CARE, seenOn: [0, 1] }], commonEntities: [], ownedGaps: [] }), accepted = await readWinningPattern(three, ownedFacts(), "t_fixture", { complete: seam(majority).complete });
     expect([accepted?.winners, accepted?.commonHeadings[0]?.seenOn]).toEqual([3, [0, 1]]);
     expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(majority).complete }), "two of four publishers is not a strict majority and is never called common").toBeNull();
   });
@@ -121,7 +121,7 @@ describe("the one reading a case may buy", () => {
     const completeA = page("a.example", [CARE]);
     const completeC = page("c.example", [CARE]);
     const completeD = page("d.example", [CARE]);
-    const reader = seam(reading({ commonHeadings: [{ heading: CARE, seenOn: [0, 1] }], commonEntities: [], ownedGaps: [], uniqueNotCommon: [] }));
+    const reader = seam(reading({ commonHeadings: [{ heading: CARE, seenOn: [0, 1] }], commonEntities: [], ownedGaps: [] }));
 
     const result = await readWinningPattern(
       extractPageFacts([unread, partial, completeA, completeC, completeD]),

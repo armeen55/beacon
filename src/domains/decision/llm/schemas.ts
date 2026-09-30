@@ -153,11 +153,11 @@ export type CaseSynthesis = z.infer<typeof CaseSynthesisSchema>;
 // the numbers it was handed and writes every pattern in its own words. The caller throws the WHOLE reading away on any of five: an eight-word run off a supplied line in ANY field, a heading over five words handed back
 // verbatim, a section or thing no cited page carries, a gap with no page of mine supplied, or an `archetype` re-voting the shape.
 const SeenOnSchema = z.array(z.number().int().min(0).max(11)).min(1).max(12);
-const WinningPatternSchema = z.object({
+const WinningPatternSchema = z.strictObject({
   archetype: z.enum(["informational_guide", "list", "definition", "comparison", "product", "category", "tool", "forum", "mixed", "unknown"]),
   commonHeadings: z.array(z.object({ heading: z.string().min(1).max(160), seenOn: SeenOnSchema })).max(10), commonEntities: z.array(z.object({ entity: z.string().min(1).max(120), seenOn: SeenOnSchema })).max(15),
   questionsAnswered: z.array(z.string().min(1).max(300)).max(10), openingPattern: z.string().max(300), disagreements: z.array(z.string().min(1).max(300)).max(5),
-  ownedGaps: z.array(z.object({ gap: z.string().min(1).max(300), seenOn: SeenOnSchema })).max(8), uniqueNotCommon: z.array(z.object({ detail: z.string().min(1).max(300), seenOn: SeenOnSchema })).max(5),
+  ownedGaps: z.array(z.object({ gap: z.string().min(1).max(300), seenOn: SeenOnSchema })).max(8),
 });
 export type WinningPatternRead = z.infer<typeof WinningPatternSchema>;
 // ── page job (2026-08-11): what ONE owned page is FOR, in a sentence ──────── Read off that page's own stored extract: its address, its title, its heading, its section headings, its length, and its opening words when

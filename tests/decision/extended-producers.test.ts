@@ -16,7 +16,7 @@ const INVENTED = "Rain barrels cost $99 at every hardware store.";
 const KEYS = ["links", "ai", "competing"];
 const finding = (cause: CauseFinding["cause"], payload?: unknown): CauseFinding => ({ cause, action: null, evidenceKeys: KEYS, competingExplanations: [], notConsidered: [],
     falsifier: "If my next look shows something else, this is not the explanation.", explanation: "This is what I found.", ...(payload === undefined ? {} : { payload }) }) as CauseFinding;
-const PATTERN: WinningPattern = { archetype: "informational_guide", disagreements: [], uniqueNotCommon: [], winners: 3, fingerprint: "fp",
+const PATTERN: WinningPattern = { archetype: "informational_guide", disagreements: [], winners: 3, fingerprint: "fp",
   commonHeadings: [{ heading: "How much water a roof collects", seenOn: [0, 1] }, { heading: "Choosing a barrel size", seenOn: [0, 2] }],
   commonEntities: [{ entity: "Roof area", seenOn: [0] }, { entity: "Downspout diverter", seenOn: [0, 1] }],
   questionsAnswered: ["What size rain barrel do I need?"], openingPattern: "They answer the question in the first line.",

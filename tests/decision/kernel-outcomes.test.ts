@@ -409,7 +409,7 @@ const STALE = { url: RIVAL(4), domain: "r4.example", engines: [], examplePrompts
 const READABLE = (over: Partial<ResearchPageComparison> = {}): FunnelResearchEvidence => { const r = READY(over); return { ...r, winningPages: [...r.winningPages.map(rich), STALE] }; };
 const PATTERN = (user: string) => ({ archetype: user.match(/SETTLED: (\w+)/)?.[1] ?? "unknown", commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [{ entity: "Nowruz", seenOn: [0, 1, 2] }],
   questionsAnswered: ["What belongs on it?"], openingPattern: "Each of them answers the question in its first sentence.", disagreements: ["Some of them call it a custom and others call it a shopping list."],
-  ownedGaps: user.includes("No qualified owned capture") ? [] : [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], uniqueNotCommon: [{ detail: "one of them prices the pieces", seenOn: [1] }] });
+  ownedGaps: user.includes("No qualified owned capture") ? [] : [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }] });
 describe("what the winning pages share reaches the operator, and never one of their own sentences", () => {
   it("funded research retains its own page, winners and verdict beside a blocked higher-priority topic", async () => {
     const research = READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) });
@@ -555,7 +555,7 @@ describe("do I already have the right page for what I investigated", () => { it(
     expect([page.bodyHeld, page.strongSignals]).toEqual([false, 1]); expect(page.signals.find((s) => s.strength === "unknown")!.detail).toBe("A current, version-bound capture of this page is not held, so whether it already covers this is unknown."); });
   it("surfaces BOTH of my pages when both already cover the topic", () => { expect(cands(BOTH()).map((c) => [c.url, c.strongSignals])).toEqual([[GAP_URL, 2], [FOOD, 2]]); });
 }); // ── WHY this page loses the click: one named cause, or none ─────────────────
-const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [], questionsAnswered: [], openingPattern: "Each of them answers the question in its first sentence.", disagreements: [], uniqueNotCommon: [],
+const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [], questionsAnswered: [], openingPattern: "Each of them answers the question in its first sentence.", disagreements: [],
   ownedGaps: [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], winners: 3, publishers: ["r1.example", "r2.example", "r3.example"], fingerprint: "fixture" };
 const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", "measuring_change"];
 const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [canon({ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
