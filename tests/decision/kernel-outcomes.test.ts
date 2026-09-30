@@ -1,5 +1,6 @@
 import { PROOF_SPEND } from "@/lib/spend-scope"; import * as publicExtracts from "@/domains/evidence/dataforseo/page-extract-cache"; import * as callCache from "@/domains/decision/llm/call-cache"; import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 import { publicationDraft } from "../helpers/publication-draft";
 const terminal = vi.hoisted(() => ({ work: new Set<string>(), fingerprints: new Set<string>() })); beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-07-26T00:00:00Z")); }); afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); terminal.work.clear(); terminal.fingerprints.clear(); });
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} })); // Budget is not this file's subject: always-allowed, no-op hermetic seam.

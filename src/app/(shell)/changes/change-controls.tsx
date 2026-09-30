@@ -1,6 +1,7 @@
 "use client";
 
 import { createElement, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import type { BundleComponent } from "@/domains/decision";
 import { confirmDangerousChangeAction, dismissProposalAction, finishOneProposalAction, markProposalImplementedAction, reviewDraftAction } from "./actions";
 import operatorUiPolicy from "./types";
@@ -141,6 +142,7 @@ export function CopyButton({ text, units, link = null, label, onToast }: { text:
 /** Explicit preparation or version-bound dismissal; global preparation never skips a selected proposal. */
 export function SetAsideChange({ proposalId = "", finishable = false, prepare = false, prepareNext = false, displayedVersion, historyOnly = false, onFinished }: { proposalId?: string; finishable?: boolean; prepare?: boolean; prepareNext?: boolean; displayedVersion?: string; historyOnly?: boolean; onFinished?: () => void }) {
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
   const [limitToOne, setLimitToOne] = useState(false);
   const [state, setState] = useState<{ done: boolean; asked: boolean; finished: string | null; error: string | null; maxTotalUsd: string }>({ done: false, asked: false, finished: null, error: null, maxTotalUsd: "1.05" });
 
@@ -167,7 +169,7 @@ export function SetAsideChange({ proposalId = "", finishable = false, prepare = 
             startTransition(async () => { const res = await finishOneProposalAction(prepareNext ? { prepareNext: true, maxTotalUsd: Number(state.maxTotalUsd) } : prepare ? { proposalId, prepare: true, authorizationId, ...(limitToOne ? { limitToOneDollar: true as const } : {}) } : { proposalId }).catch(() => null);
             const message = res?.success ? res.note ?? "Finished. This change is ready to copy." : res?.error ?? "The action response was unavailable; its outcome and charges are not confirmed here.";
             if (proposalId && displayedVersion) { try { window.sessionStorage.setItem(`beacon.finish-one.${proposalId}`, JSON.stringify({ proposalId, displayedVersion, message, success: res?.success === true })); window.dispatchEvent(new window.Event("beacon-finish-result")); } catch { /* The current response remains visible when browser storage is unavailable. */ } }
-            onFinished?.();
+            if (onFinished) onFinished(); else router.refresh();
             setState((s) => ({ ...s, finished: res?.success ? message : null, error: res?.success ? null : message })); }); }}
           className="min-h-11 rounded-md bg-accent-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-60">
           {pending ? "Preparing the change…" : prepareNext ? "Prepare next change" : prepare ? "Prepare best edit on this page" : "Finish this one"}

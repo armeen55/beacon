@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
