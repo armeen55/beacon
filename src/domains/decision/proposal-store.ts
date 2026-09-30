@@ -78,16 +78,12 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
   try {
     const sb = getSupabaseAdmin(); const ident0 = identityOf(proposal);
     const data: CanonRow[] = [], history: CanonRow[] = [];
-    for (const disposition of [null, "withdrawn", "dismissed", "superseded", "settled"] as const) {
-      for (let offset = 0; ; offset += 200) {
-        const query = sb.from(TABLE).select(CANON_COLUMNS).eq("tenant_id", proposal.tenantId)
-          .eq("case_id", ident0.case_id).eq("page_key", ident0.page_key);
-        const { data: page, error } = await (disposition == null ? query.is("terminal_disposition", null) : query.eq("terminal_disposition", disposition))
-          .order("id", { ascending: true }).range(offset, offset + 199);
-        if (error) { log.error("[proposal-store] canonical read failed, nothing was written", { tenantId: proposal.tenantId, id: proposal.id, error: error.message }); return "failed"; }
-        (disposition == null ? data : history).push(...(page ?? []) as CanonRow[]);
-        if ((page ?? []).length < 200) break;
-      }
+    for (let offset = 0; ; offset += 200) {
+      const { data: page, error } = await sb.from(TABLE).select(CANON_COLUMNS).eq("tenant_id", proposal.tenantId)
+        .eq("case_id", ident0.case_id).eq("page_key", ident0.page_key).order("id", { ascending: true }).range(offset, offset + 199);
+      if (error) { log.error("[proposal-store] canonical read failed, nothing was written", { tenantId: proposal.tenantId, id: proposal.id, error: error.message }); return "failed"; }
+      for (const row of (page ?? []) as CanonRow[]) (row.terminal_disposition == null ? data : history).push(row);
+      if ((page ?? []).length < 200) break;
     }
     const onPage = ((data ?? []) as CanonRow[]).map((r) => ({ row: r, stored: r.id === proposal.id ? null : decode(r.payload) })); // WHAT THIS CHANGE COLLIDES WITH, never everything that merely shares its page: a table row and a heading both stand, while a bundle rewriting a title takes over the plain title rewrite. A row that will not decode is KEPT, because an unreadable neighbour is not proof of no conflict. The id is looked up separately too, since it may have been filed under a DIFFERENT family last time.
     const rows = onPage.filter((e) => e.row.id === proposal.id || !e.stored || footprintsOverlap(e.stored, proposal)).map((e) => e.row);

@@ -197,16 +197,16 @@ describe("canonical proposal persistence", () => { const currentBody = async (at
     Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // the operator put it away
     expect(await saveChangeProposal(proposal({ confidence: "high" }))).toBe("refused"); expect([db.state.rows[0]!.terminal_disposition, (await loadChangeProposals(T)).size]).toEqual(["dismissed", 0]);
     expect(await saveChangeProposal(proposal({ basis: "basis_tomorrow::d6" }))).toBe("refused"); expect([db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.proposal_version]).toEqual(["dismissed", 1]); });
-  it("reads dismissed copy past 200 rows without confusing research siblings or other history with a refusal", async () => {
-    const p = proposal(); await saveChangeProposal(p); const seed = { ...db.state.rows[0]! }; db.state.rows = [];
-    for (let i = 0; i < 205; i++) db.state.rows.push({ ...seed, id: `${T}::${PAGE}::existing_edit::old-${i}`, terminal_disposition: "dismissed", payload: JSON.parse(serializeChangeProposal(proposal({ bundle: bundle("title", `An unrelated finished title number ${i}`) }))) });
-    expect(await saveChangeProposal(p)).toBe("saved");
-    Object.assign(db.state.rows.at(-1)!, { id: `${T}::${PAGE}::existing_edit::zz-declined`, terminal_disposition: "dismissed" });
-    expect(await saveChangeProposal(proposal({ basis: "moved" }))).toBe("refused");
+  it("reads mixed current and terminal history past 200 rows without losing refusals, conflicts or tenant isolation", async () => {
+    const p = proposal(); await saveChangeProposal(p); const seed = { ...db.state.rows[0]! }; db.state.rows = [seed, { ...seed, tenant_id: "acct-b", id: "acct-b::unreadable", payload: null }];
+    for (let i = 0; i < 205; i++) db.state.rows.push({ ...seed, id: `${T}::${PAGE}::existing_edit::old-${i}`, terminal_disposition: ["dismissed", "withdrawn", "superseded", "settled"][i % 4], payload: JSON.parse(serializeChangeProposal(proposal({ bundle: bundle("title", `An unrelated finished title number ${i}`) }))) });
+    db.state.selectCount = 0; const unchanged = JSON.stringify(db.state.rows); expect(await saveChangeProposal(p)).toBe("unchanged"); expect([db.state.selectCount, JSON.stringify(db.state.rows)]).toEqual([2, unchanged]);
+    db.state.rows.push({ ...seed, id: `${T}::${PAGE}::existing_edit::zz-declined`, terminal_disposition: "dismissed" }); expect(await saveChangeProposal(proposal({ basis: "moved" }))).toBe("refused"); db.state.rows.pop();
+    db.state.rows.push({ ...seed, id: `${T}::${PAGE}::unreadable`, payload: null }); const conflicted = JSON.stringify(db.state.rows); expect(await saveChangeProposal(p)).toBe("blocked"); expect(JSON.stringify(db.state.rows)).toBe(conflicted); db.state.rows.pop();
+    db.state.missing = true; const calls = db.state.rpcCalls; expect(await saveChangeProposal(p)).toBe("failed"); expect([db.state.rpcCalls, JSON.stringify(db.state.rows)]).toEqual([calls, unchanged]); db.state.missing = false;
     db.state.rows = Array.from({ length: 205 }, (_, i) => ({ ...seed, id: `history-${i}`, terminal_disposition: "superseded" }));
     expect(await saveChangeProposal(p)).toBe("refused");
-    db.state.rows = [];
-    const brief = proposal({ researchOnly: true, primaryQuery: "first query", bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Write the answer.", where: "After first heading" } });
+    db.state.rows = []; const brief = proposal({ researchOnly: true, primaryQuery: "first query", bundle: undefined, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Write the answer.", where: "After first heading" } });
     expect(await saveChangeProposal(brief)).toBe("saved"); await dismissChangeProposal(T, brief.id);
     const sibling = { ...brief, id: `${T}::${PAGE}::existing_edit::sibling`, primaryQuery: "second query" } as ChangeProposal;
     expect(await saveChangeProposal(sibling)).toBe("saved"); expect(await saveChangeProposal(brief)).toBe("refused");

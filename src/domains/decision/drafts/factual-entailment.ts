@@ -1,6 +1,6 @@
 /**
  * factual-entailment: a PURE, deterministic check that every checkable assertion in a draft is GROUNDED in
- * something this pass actually holds: the target page's own stored body, the evidence text handed to the drafter, or the query itself. Numbers and dates, named entities and superlatives are the three things a
+ * something this pass actually holds: the target page's own stored body or the evidence text handed to the drafter. Query wording is targeting context, never authority for measurable superiority. Numbers and dates, named entities and superlatives are the three things a
  * model invents most readily and a reader can least easily catch.
  *
  * TWO OUTCOMES, AND ONLY ONE OF THEM BLOCKS. A VIOLATION is an assertion with no grounding anywhere: the draft
@@ -231,12 +231,10 @@ export function entityGrounded(entity: string, haystackLower: string): boolean {
   return words.every((w) => haystackHasWord(w, haystackLower));
 }
 
-// ── superlative check (mirrors draft-quality.ts's STRONG_SUPERLATIVE net,
-//    slightly broadened to also catch "the first" / "the tallest" etc, since
-//    THOSE specifically need a source sentence, not just a marketing flag) ──
+// Measurable or universal superiority needs factual support; scoped editorial preference is judged against the complete reader task.
 
 const SUPERLATIVE_CLAIM =
-  /\bthe\s+(?:best|only|first|largest|biggest|oldest|newest|tallest|smallest|highest|lowest|longest|shortest|most\s+\w+|world'?s\s+(?:best|largest|oldest|first|leading|tallest))\b/gi;
+  /#1\b|\b(?:guaranteed|number one|(?:top|highest|best)[- ]rated|world['’]?s\s+(?:best|largest|oldest|first|leading|tallest)|(?:the\s+)?(?:best|leading|premier|greatest|finest)(?=[^.!?\n]*\b(?:anywhere|in the world|of all time|of its kind|on the coast)\b)|the\s+(?:only|first|largest|biggest|oldest|newest|tallest|smallest|highest|lowest|longest|shortest|most\s+\w+|world['’]?s\s+(?:best|largest|oldest|first|leading|tallest)))\b/gi;
 
 /** W5 trust-230 (2026-07-09): exported additively so source-authority.ts's
  *  per-claim coverage check treats a superlative sentence as PROTECTED (it
@@ -292,7 +290,7 @@ export function checkFactualEntailment(input: FactualEntailmentInput): FactualEn
 
   // With NO grounding text and NO dated facts at all, this gate has nothing to check claims against - that is an evidence-floor problem (every structured
   // draft already requires evidenceRefs.min(1) upstream), not a per-claim entailment failure, so it abstains rather than flagging every number/entity/superlative as invented.
-  if (!groundedOrFactsBlob) {
+  if (!groundedOrFactsBlob && findSuperlatives(draft).length === 0) {
     return { entailed: true, violations: [], corrections: [], findings: [] };
   }
 
@@ -349,7 +347,7 @@ export function checkFactualEntailment(input: FactualEntailmentInput): FactualEn
   //    riskiest kind of unsupported claim; a dated, sourced one is a correction.
   const superlatives = findSuperlatives(draft);
   for (const phrase of superlatives) {
-    if (groundedLower.includes(phrase)) continue;
+    if ([pageBody, evidence].join(" ").toLowerCase().includes(phrase)) continue;
     const fact = findAuthoritativeMatch(phrase, facts);
     if (fact) {
       findings.push({

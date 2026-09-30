@@ -336,8 +336,7 @@ async function verifyStampedSources(
 function runContentFirewalls(
   strings: string[],
   ledger: GroundedNumbers,
-  // G4 (2026-07-10): when true, the flat marketing-superlative reject is SKIPPED here and handled instead by the verification-aware superlative post-check after source verification (a superlative IS allowed when a qualifying verified source asserts it; an ungrounded one triggers ONE rephrase retry, then fails closed). The drafter defers it for `answer_block` and for every `answer_analysis` kind, which RESTATES somebody else's answer and may quote a superlative that answer used; every other kind keeps the hard reject below.
-  opts?: { deferSuperlativeCheck?: boolean; skipPlaceholderCheck?: boolean; ownWords?: string },
+  opts?: { skipPlaceholderCheck?: boolean },
 ): { ok: true } | { ok: false; reason: string } {
   const blob = strings.join("  ");
   // NAME THE THING THAT WAS REJECTED. A bare "placeholder" tells a retry only its category, so it returns the
@@ -352,7 +351,6 @@ function runContentFirewalls(
     const placeholder = /\[[^\]]*\]|\{\{|TODO|TBD|lorem ipsum/i.exec(blob);
     if (placeholder) return { ok: false, reason: `placeholder:${placeholder[0].slice(0, 40)}` };
   }
-  const sup = opts?.deferSuperlativeCheck ? null : SUPERLATIVES.exec(blob); if (sup && !(opts?.ownWords && new RegExp(`\\b${sup[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(opts.ownWords))) return { ok: false, reason: `superlative:${sup[0]}` }; // NAMED, like the placeholder above: told only the category, three paid retries per page returned the same word (live 2026-09-02)
   const invented = findUngroundedNumbers(blob, ledger);
   if (invented.length > 0) return { ok: false, reason: `invented_numbers:${invented.slice(0, 3).join(",")}` };
   return { ok: true };
@@ -404,8 +402,6 @@ function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
 }
 
 export type StructuredDraftRequest<K extends StructuredDraftKind> = {
-  /** TRUE for an additive draft (no current value being replaced): the flat superlative firewall defers, and the sentence rides the card as a caveat instead of failing the page closed (operator, 2026-09-11). */
-  deferSuperlatives?: boolean;
   kind: K;
   promptId?: PromptId;
   /** The owning account. REQUIRED and validated non-empty FIRST (before cache, budget, or the call), and threaded into the cache key, cache storage, the budget check/record, and the completion fn. No global fallback. */
@@ -429,7 +425,7 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   /** Injected for tests; defaults to the real OpenAI call. */
   complete?: CompleteFn;
   fewShotProvenance?: FewShotProvenance;
-  bypassCache?: boolean; /** THE PAGE'S OWN TITLE AND HEADINGS (live 2026-09-02): a superlative they carry is the page's own fact, not the writer's claim, so a summary field may repeat that word; twenty city pages headed "Best Persian Restaurants in X" could never earn a description. */ ownWords?: string;
+  bypassCache?: boolean;
   cacheImpl?: CacheImpl;
   recentOutputs?: string[];
   authoritativeSourceDomains?: readonly string[];
@@ -449,10 +445,9 @@ function validateDraftValue(req: StructuredDraftRequest<StructuredDraftKind>, sc
   if (unknownId) return { errors: [`evidenceRefs: unknown citation ${unknownId}`] };
   const citationRefs = req.citationIds ? refs?.map((r) => ({ ...r, detail: r.detail?.replace(/\bpage-copy-\d+\b/g, "cited passage") })) : refs; // Only packet-authorized citation indexes are metadata; all other numbers remain prose claims.
   const fw = runContentFirewalls(draftProseStringValues(req.observationGrounded == null ? { ...data as Record<string, unknown>, evidenceRefs: citationRefs } : { ...data as Record<string, unknown>, evidenceRefs: undefined }), ledger, {
-    deferSuperlativeCheck: req.kind.startsWith("answer_analysis") || req.deferSuperlatives === true || primaryCustomerText(req.kind, data) == null,
-    skipPlaceholderCheck: primaryCustomerText(req.kind, data) == null, ownWords: req.ownWords,
+    skipPlaceholderCheck: primaryCustomerText(req.kind, data) == null,
   });
-  const observed = req.observationGrounded == null ? { ok: true as const } : runContentFirewalls(draftProseStringValues(citationRefs), buildRequestLedger(req.observationGrounded, year), { deferSuperlativeCheck: true, skipPlaceholderCheck: true });
+  const observed = req.observationGrounded == null ? { ok: true as const } : runContentFirewalls(draftProseStringValues(citationRefs), buildRequestLedger(req.observationGrounded, year), { skipPlaceholderCheck: true });
   return !fw.ok || !observed.ok ? { errors: [`firewall:${!fw.ok ? fw.reason : !observed.ok ? observed.reason : "invalid"}`] } : { data };
 }
 const unpaidFailure = (reason: string, errors = [reason], failure: LlmFailure = "transient"): StructuredDraftResult<never> => ({ status: "validation_failed", reason, errors, failure, costUsd: 0, retried: false, attempts: 0 });
@@ -526,7 +521,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         // of every kind, so a judgement whose schema has no such field was told to fill one in, which is an
         // instruction it can only fail or fabricate against.
         const wantsRefs = "evidenceRefs" in ((schema as unknown as { shape?: Record<string, unknown> }).shape ?? {});
-        system = `${req.system}\n\nYour previous output was rejected: ${errors.slice(-3).join(" | ")}. Fix exactly those problems${wantsRefs ? " and include at least one non-empty evidenceRefs entry" : ""}.`; const sup = errors.map((e) => /^firewall:superlative:(.+)$/.exec(e)?.[1]).find(Boolean); if (sup) system += ` The word "${sup}" is a ranking claim no supplied source makes: remove it and every other ranking word (best, leading, top-rated, premier, ultimate) and say what the page offers instead.`; // A CODE IS NOT AN INSTRUCTION (live 2026-09-02): told "firewall:superlative:best", the writer returned "best" on every retry
+        system = `${req.system}\n\nYour previous output was rejected: ${errors.slice(-3).join(" | ")}. Fix exactly those problems${wantsRefs ? " and include at least one non-empty evidenceRefs entry" : ""}.`;
         // R16 numeric repair: when the failure was an ungrounded number, inject the CORRECT grounded numbers so the retry can fix the figure instead of guessing again. One repair retry, then fail closed.
         if (errors.some((e) => e.startsWith("firewall:invented_numbers"))) {
           const nums = groundedNumberList(ledger);
@@ -662,7 +657,7 @@ type AtomicEditStructuredInput = {
   /** The owning account (Slice 3: REQUIRED, threaded to the drafter for cache + budget scoping). Also looks up this account's own measured winners (same field/lever) for the few-shot injection below. */
   tenantId: string;
   /** BEACON_500 item 74: the page's family (first path segment), used ONLY to look up a CONFIDENT winning pattern for this family. Optional - omitting it (or having no confident cell yet) leaves the prompt byte-identical, never an error. */
-  pageFamily?: string; /** THE EXACT STORED PASSAGE THIS COPY REPLACES, for a body rewrite alone, and the whole of the superlative allowance a body edit gets (live 11:30Z, 2026-09-05): the prompt told the writer four times to keep everything true the replaced passage says and once never to write "the best", on a /cuisine passage that says "the best", and the firewall refused both drafts. A replacement may keep a ranking word the words it replaces already carry, because the page already says it; nothing wider, and an addition still carries none. */ replaces?: string; /** THE DELIVERY SHAPE THE ASSIGNMENT ASKED FOR, for a body answer alone. `inline` is an addition or a direct answer that lands inside the page's own copy: it owes NO heading and its anchor is the exact stored wording the assignment named. Absent keeps the headed-section contract byte for byte. */ answerShape?: "inline" | "adaptive";
+  pageFamily?: string; /** Exact stored predecessor for a body rewrite; preserve its supported meaning and apply the shared publisher contract. */ replaces?: string; /** THE DELIVERY SHAPE THE ASSIGNMENT ASKED FOR, for a body answer alone. `inline` is an addition or a direct answer that lands inside the page's own copy: it owes NO heading and its anchor is the exact stored wording the assignment named. Absent keeps the headed-section contract byte for byte. */ answerShape?: "inline" | "adaptive";
 };
 
 /** THE OPENING NAMES THE ACTUAL JOB (Codex, 2026-08-23). This system prompt opened "You improve ONE on-page field (a page title or meta description)" for EVERY field, so a model asked for a 40-to-90-word answer block was simultaneously told it was writing a title: two assignments in one prompt, and the live reviewer read the confusion as thin restatement. The head clause now names the field being written; every homework rule after it is shared and unchanged. */
@@ -677,7 +672,7 @@ const ATOMIC_EDIT_SYSTEM = COPY_RULES.publisher + " " +
   'Return ONLY a JSON object: "field" (the field being edited), "before" (the exact current value, or null), "after" (the improved value), ' +
   '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
   '"confidence" ("high"|"medium"|"low"). ' +
-  "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
+  "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, measured rankings or universal superiority. Useful editorial hooks follow the shared publisher contract. No em-dashes. " +
   'ALSO SHOW YOUR HOMEWORK, or the edit is refused: "placementAnchor" (the EXACT existing heading or sentence from the stored page copy below that this edit replaces, lands on, or lands after, copied character for character), "naturalHeading" (a descriptive heading or a question a reader genuinely asks, or null for an inline insertion or a replacement that keeps its existing heading), ' +
   '"claims" (array of {"text","supportedBy"}, one per material statement the copy makes, where supportedBy lists only exact IDs from the shared packet evidence entries marked claim_support), "implementationMinutes" (how long this takes an operator). TWO DIFFERENT VOCABULARIES, AND MIXING THEM THROWS THE EDIT AWAY: an evidenceRefs "source" is one of the KINDS listed above (gsc, owned_snapshot, fanout and the rest), while a claim\'s supportedBy holds only a claim_support evidence ID such as page-copy-1, owned-page-target-copy-1 or fact-1. A placementId such as p1 or p2 chooses where copy goes and NEVER supports a claim. Never put a source kind, placement label, research ID or demand ID in supportedBy. State no figure the cited evidence does not show. '
   + 'Keep references concise. Each claim.text states one material assertion actually made in after; grounding IDs belong ONLY in supportedBy, not in claim.text or after. Account separately for every protected old phrase missing from after, using its exact printed text and supported correction or removal; one ruling on the entire old sentence does not cover its named entities, figures or links. A new value in the same field is not a moved or replaced_by body destination. Do not invent a removal basis. Put instructions, reasoning and omissions in metadata, never in after. Research observations and draft context cannot support factual claims.';
@@ -747,10 +742,9 @@ export async function draftAtomicEditStructured(
   }
 
   const request = {
-    deferSuperlatives: input.currentValue == null && replaces == null && typeof input.replaces !== "string",
     kind: "atomic_edit" as const,
     ...(body ? { promptId: "draft.body_edit" as const } : {}),
-    tenantId: input.tenantId, ownWords: input.field === "answer_block" ? replaces ?? input.replaces : [input.pageLabel, ...outline].join(" "), // a summary field may repeat a superlative the page's own title or headings carry; a body REPLACEMENT may repeat one the exact passage it replaces carries, and a body addition carries none
+    tenantId: input.tenantId,
     ...(input.unmarkPhrase ? { unmarkPhrase: input.unmarkPhrase } : {}),
     system: (body ? BODY_EDIT_SYSTEM : (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM) + (input.field === "answer_block" ? (body ? BODY_COPY_CLAUSE.replace(/\bafter\b/g, "the assembled publication") : BODY_COPY_CLAUSE) + BODY_DELIVERY[(replaces ?? input.replaces) != null ? "replacement" : input.answerShape === "inline" ? "inline" : input.answerShape === "adaptive" ? "adaptive" : "section"] + (body ? " The predecessor is code-owned; do not echo it. Return final publication units rather than a flat after field." : "") : input.field === "meta" ? META_SUBJECT_CLAUSE : input.field === "title" || input.field === "h1" ? TITLE_SHAPE_CLAUSE : "") + fewShots,
     user,
