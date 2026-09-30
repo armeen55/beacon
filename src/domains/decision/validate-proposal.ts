@@ -121,14 +121,15 @@ function schemaFailures(p: ChangeProposal, change: Extract<RecommendedChange, { 
   const failures = warnings.filter((w) => w.startsWith("schema_critical:")).map((w) => `This structured data is incomplete: ${w.slice("schema_critical:".length).trim()}`);
   if (change.before != null && (SCHEMA.read(change.before).unread || schemaVisible(change.before).types.size === 0)) failures.push("The existing block shown for replacement is not readable Schema.org JSON-LD. Identify the exact existing markup before replacing it; visible page text is not a schema block.");
   const limitations = warnings.filter((w) => !w.startsWith("schema_critical:")).map((w) => w.replace(/^schema_\w+:\s*/, ""));
-  const published = opts.pageBodyText ?? "";
-  const carried = COPY_RULES.flat(published);
-  const pairs = SCHEMA.pairs(graph), pairedWords = new Set(pairs.flatMap((pair) => [pair.question, pair.answer]));
-  const missing = visible.find((v) => !pairedWords.has(v) && !carried.includes(COPY_RULES.flat(v)));
-  if (missing) failures.push(`The page does not visibly carry "${missing.slice(0, 70)}", and structured data may only mark up words that are already on the page.`);
   const capture = opts.pageCapture;
   const current = capture?.version === "current" && !!capture.contentHash && isCurrent("owned_page", capture.fetchedAt, (opts.now ?? new Date()).getTime())
     && !!p.pageUrl && !!capture.url && canonicalUrlKey(capture.url) === canonicalUrlKey(p.pageUrl);
+  const articlePage = current && capture.completeness === "complete" && COPY_RULES.captureProof(capture as OwnedPageBody, (opts.now ?? new Date()).getTime()).some(frame => frame.tenantId === p.tenantId) ? capture.captureStates?.find(raw => raw.tenant_id === p.tenantId && raw.id === capture.captureId && raw.capture_version === capture.captureVersion && raw.page_id === capture.pageId && raw.fetched_at === capture.fetchedAt && raw.content_hash === capture.contentHash && raw.title === capture.title && raw.h1 === capture.h1 && raw.body_text === capture.vocabulary && COPY_RULES.captureAddress(raw.url as string) === COPY_RULES.captureAddress(capture.url) && COPY_RULES.captureAddress(raw.final_url as string) === COPY_RULES.captureAddress(capture.finalUrl) && COPY_RULES.recordKey(raw.content_capture) === COPY_RULES.recordKey(capture.sourceCapture)) : undefined;
+  failures.push(...graph.nodes.flatMap(node => SCHEMA.types(node).some(type => ["Article", "NewsArticle", "BlogPosting"].includes(type)) && typeof node.headline === "string" ? articlePage ? checkFactualEntailment({ draftText: node.headline, query: null, evidenceText: null, pageBodyText: [articlePage.title, articlePage.h1, articlePage.body_text].filter(value => typeof value === "string").join("\n"), nowYear: (opts.now ?? new Date()).getFullYear() }).violations : ["The current complete page capture is not confirmed, so this article's headline cannot be checked against its own published content."] : []));
+  const published = opts.pageBodyText ?? "";
+  const pairs = SCHEMA.pairs(graph), pairedWords = new Set(pairs.flatMap((pair) => [pair.question, pair.answer]));
+  const missing = visible.find((v) => !pairedWords.has(v) && !COPY_RULES.flat(published).includes(COPY_RULES.flat(v)));
+  if (missing) failures.push(`The page does not visibly carry "${missing.slice(0, 70)}", and structured data may only mark up words that are already on the page.`);
   const held = current ? (capture.faqs ?? []).filter((pair) => pair.answerComplete === true && ["html_details", "html_section"].includes(pair.source)) : [];
   let unknown: string | undefined, mismatched = false;
   for (const pair of pairs) {
@@ -301,7 +302,7 @@ export function canonTextOf(page: { content?: { title?: string | null; h1?: stri
 type ValidateProposalOptions = {
   /** The target page's own captured body text for factual validation. */
   pageBodyText?: string | null;
-  pageCapture?: Partial<Pick<OwnedPageBody, "url" | "faqs" | "version" | "contentHash" | "fetchedAt" | "completeness">> | null;
+  pageCapture?: (Partial<Pick<OwnedPageBody, "url" | "faqs" | "version" | "contentHash" | "fetchedAt" | "completeness" | "tenantId" | "captureStates" | "captureId" | "captureVersion" | "pageId" | "sourceCapture" | "finalUrl" | "title" | "h1">> & { vocabulary?: string | null }) | null;
   /** Flattened evidence text the draft may cite (numbers/facts). */
   evidenceText?: string | null;
   /** Dated, sourced facts on file (allow a correction). */
