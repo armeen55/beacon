@@ -24,30 +24,28 @@ export type StateRepoDeps = { admin?: () => AdminLike; configured?: () => boolea
 
 const TABLE = "research_state";
 
-/** Load the (tenant, basis) row, or null when absent / unconfigured / on error. */
+/** Load the (tenant, basis) row; only genuine absence is null, unreadable state throws. */
 export async function loadResearchState<T>(
   tenantId: string,
   basisTag: string,
   deps: StateRepoDeps = {},
 ): Promise<ResearchStateRow<T> | null> {
   const configured = deps.configured ?? isSupabaseConfigured;
-  if (!configured() || !tenantId || !basisTag) return null;
-  try {
-    const admin = deps.admin ?? getSupabaseAdmin;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const q = (admin() as any)
-      .from(TABLE)
-      .select("schema_version, state, row_version")
-      .eq("tenant_id", tenantId)
-      .eq("basis_tag", basisTag)
-      .maybeSingle();
-    const { data, error } = await q;
-    if (error || !data) return null;
-    const row = data as { schema_version: number; state: T; row_version: number };
-    return { tenantId, basisTag, schemaVersion: row.schema_version, state: row.state, rowVersion: row.row_version };
-  } catch {
-    return null;
-  }
+  if (!configured() || !tenantId?.trim() || !basisTag?.trim()) throw new Error("Saved research requires configured persistence, tenant and basis.");
+  const admin = deps.admin ?? getSupabaseAdmin;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const q = (admin() as any)
+    .from(TABLE)
+    .select("schema_version, state, row_version")
+    .eq("tenant_id", tenantId)
+    .eq("basis_tag", basisTag)
+    .maybeSingle();
+  const { data, error } = await q;
+  if (error) throw new Error("Saved research state could not be read.", { cause: error });
+  if (data === null) return null;
+  const row = data as { schema_version: number; state: T & Record<string, unknown>; row_version: number };
+  if (!row || typeof row !== "object" || Array.isArray(row) || !Number.isInteger(row.schema_version) || row.schema_version <= 0 || !Number.isInteger(row.row_version) || row.row_version <= 0 || !row.state || typeof row.state !== "object" || Array.isArray(row.state) || row.state.tenantId !== tenantId || row.state.basisTag !== basisTag) throw new Error("Saved research state is malformed or belongs to another scope.");
+  return { tenantId, basisTag, schemaVersion: row.schema_version, state: row.state, rowVersion: row.row_version };
 }
 
 /** Optimistic save: writes only when the stored row_version still equals

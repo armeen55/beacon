@@ -317,7 +317,9 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
     const exact = mode === "exact" && priorityQueries.length === 1 ? normalizeKeyword(priorityQueries[0] ?? "") : null;
     if (mode === "exact" && !exact) return { status: "failed", cursor, progress: {}, detail: "An exact results-page request must name one search." };
     const unitKey = `serps:${tenantId}`, ids = { tenantId, unitKey }, deadline = d.now() + Math.max(1000, budgetMs);
-    const loaded = await d.loadState(tenantId, basis), state = loaded.state;
+    const loaded = await d.loadState(tenantId, basis).catch(() => null);
+    if (!loaded) return { status: "failed", attempted: false, cursor, progress: {}, detail: "Saved search research could not be read, so no provider was called and existing evidence was preserved." };
+    const state = loaded.state;
     if (exact && d.now() > deadline) return { status: "failed", attempted: false, cursor, progress: serpProgress(state), detail: "Reading the saved search state used this exact source step’s deadline; no provider was called and saved research was preserved." };
     beginCycle(state, cursor, unitKey);
     const ctx: SaveCtx = { rowVersion: loaded.rowVersion }, retained = state.discovery.retained;

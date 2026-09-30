@@ -630,19 +630,19 @@ describe("research funnel - the journey behind a keyword", () => {
     const first = memStore(seeded()); await run(first, eight); expect(after(first)).toEqual([6, 2]);
     const second = memStore(first.peek("tj", BASIS)!); await run(second, eight); expect(after(second)).toEqual([6, 2]); // the same eight answers read again: recomputing from the same inputs changes nothing
     const again = memStore(second.peek("tj", BASIS)!); await run(again, eight); expect(after(again)).toEqual([6, 2]); });
-  it("keeps the remainder in the count when a stored list is clamped", async () => {
-    const origins = Array.from({ length: 9 }, (_, i) => ({ route: "fanout" as const, promptId: `x${i}` })); // A row stored with more arrivals than the bound is cut to the bound, and what was cut is ADDED to the count rather than deleted with it.
-    const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 1, normalized: 1, retained: 1, rejected: 0 }, caseCompetitors: [],
-      retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "fanout", origins, moreOrigins: 1 }] } } as unknown as FunnelState;
-    const table = { select: () => table, eq: () => table, maybeSingle: async () => ({ data: { schema_version: 3, state: stored, row_version: 1 }, error: null }) };
-    const loaded = await loadFunnelState("tj", BASIS, { configured: () => true, admin: () => ({ from: () => table }) });
-    const k = loaded.state.discovery.retained[0]!; expect([k.origins!.length, k.moreOrigins]).toEqual([6, 4]); }); // 9 held plus 1 already counted: six kept, four counted
-  it("decodes a row stored before the journey was kept as one that recorded no journey, never as one from nowhere", async () => {
-    const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 1, normalized: 1, retained: 1, rejected: 0 }, caseCompetitors: [],
-      retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "site", rankedUrl: "https://own.com/s", rankedRank: 4 }] } } as unknown as FunnelState;
-    const table = { select: () => table, eq: () => table, maybeSingle: async () => ({ data: { schema_version: 3, state: stored, row_version: 1 }, error: null }) };
-    const loaded = await loadFunnelState("tj", BASIS, { configured: () => true, admin: () => ({ from: () => table }) }); const k = loaded.state.discovery.retained[0]!;
-    expect([k.origins, k.moreOrigins, k.ownedRankingUrl, k.ownedPosition]).toEqual([undefined, undefined, "https://own.com/s", 4]); }); // nothing crashes, nothing is fabricated, the legacy ranking still lands
+  it.each(["stored", "query", "transport", "unconfigured", "tenant", "basis", "malformed", "row_version", "schema_version", "payload_schema", "foreign", "absent"])("preserves legacy decoding and distinguishes genuine absence from %s state", async (failure) => {
+    const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 2, normalized: 2, retained: 2, rejected: 0 }, caseCompetitors: [],
+      retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "fanout", origins: Array.from({ length: 9 }, (_, i) => ({ route: "fanout", promptId: `x${i}` })), moreOrigins: 1 },
+        { keyword: "saffron grades", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "site", rankedUrl: "https://own.com/s", rankedRank: 4 }] } } as unknown as FunnelState;
+    const table = { select: () => table, eq: () => table, maybeSingle: async () => { if (failure === "transport") throw new Error("Read transport failed"); return { data: ["stored", "payload_schema", "foreign", "row_version", "schema_version"].includes(failure) ? { schema_version: failure === "schema_version" ? 0 : 1, state: { ...stored, schemaVersion: failure === "payload_schema" ? 99 : 3, tenantId: failure === "foreign" ? "other" : "tj" }, row_version: failure === "row_version" ? 0 : 1 } : failure === "malformed" ? {} : null, error: failure === "query" ? { message: "Read query failed" } : null }; } };
+    const deps = { configured: () => failure !== "unconfigured", admin: () => ({ from: () => table }) };
+    const reading = loadFunnelState(failure === "tenant" ? " " : "tj", failure === "basis" ? " " : BASIS, deps);
+    if (failure === "stored") {
+      const [arrival, legacy] = (await reading).state.discovery.retained;
+      expect([arrival!.origins!.length, arrival!.moreOrigins]).toEqual([6, 4]);
+      expect([legacy!.origins, legacy!.moreOrigins, legacy!.ownedRankingUrl, legacy!.ownedPosition]).toEqual([undefined, undefined, "https://own.com/s", 4]);
+    } else if (failure === "absent") expect(await reading).toMatchObject({ rowVersion: 0, state: { tenantId: "tj", basisTag: BASIS } }); else await expect(reading).rejects.toThrow();
+  });
 });
 describe("evidence - the per-case research receipt", () => {
   const CASE = "inv_canon", ABSORBED = "inv_old", at = new Date(NOW).toISOString();

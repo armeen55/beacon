@@ -249,13 +249,13 @@ function decodeKeyword(k: FunnelKeyword): FunnelKeyword {
   return { ...row, ownedRankingUrl: legacy.rankedUrl, ownedPosition: row.ownedPosition ?? legacy.rankedRank ?? null };
 }
 
-/** Decode an unknown persisted blob into a safe, current-shape state. Never throws.
- *  A schema/basis/tenant mismatch reads as EMPTY so stale-shape residue never renders. */
+/** Decode a readable persisted blob into a safe, current-shape state.
+ *  Invalid saved state throws; only a genuinely absent row may initialize empty research. */
 function decodeFunnelState(tenantId: string, basisTag: string, raw: unknown): FunnelState {
   const base = emptyFunnelState(tenantId, basisTag);
-  if (!raw || typeof raw !== "object") return base;
+  if (!raw || typeof raw !== "object") throw new Error("Saved research state is malformed.");
   const r = raw as Partial<FunnelState>;
-  if (r.schemaVersion !== FUNNEL_SCHEMA_VERSION || r.tenantId !== tenantId || r.basisTag !== basisTag) return base;
+  if (r.schemaVersion !== FUNNEL_SCHEMA_VERSION || r.tenantId !== tenantId || r.basisTag !== basisTag) throw new Error("Saved research state uses an unsupported schema or scope.");
   const d = r.discovery;
   return {
     ...base,
