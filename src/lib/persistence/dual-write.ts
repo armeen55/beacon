@@ -3,6 +3,7 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "./supabase";
+import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 
 const CHUNK_SIZE = 500;
 
@@ -92,16 +93,7 @@ async function dualWriteUpsert(
   }
 }
 
-/**
- * Tables whose Supabase rows do NOT carry a `tenant_id` column. Writes to these MUST go through `dualWriteUpsert`. Writes to any other table MUST go through `dualWriteUpsertScoped`.
- *
- * Categories:
- * - registry:       `tenants`
- * - singletons:     `business_config`, `citation_evidence_index`, `answer_intelligence_index`
- * - operator-shared config: `tracked_prompts`, `tracked_entities`, `answer_texts`
- * - global learning: `change_patterns`, `triage_rules`, `confidence_calibration`
- *
- */
+/** Shared registry and configuration tables are refused by tenant-scoped writes. */
 export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
   "tenants",
   "business_config",
@@ -113,11 +105,7 @@ export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
   "confidence_calibration",
 ]);
 
-/**
- * Throws if any row's `tenant_id` doesn't match `tenantId`. Pure / no I/O. Use as the first step of every tenant-scoped writer; failing fast on mismatch is the leak-prevention contract.
- *
- * Treats missing/null `tenant_id` as a mismatch - defense against row mappers that forgot to stamp the field. An empty `tenantId` argument is also rejected so callers can't "validate" with the wrong fail-open value.
- */
+/** Pure tenant assertion: missing/null row tenants and empty scopes fail; inputs are unchanged. */
 export function assertRowsScopedToTenant(
   rows: ReadonlyArray<{ tenant_id?: string | null }>,
   tenantId: string,
@@ -138,11 +126,7 @@ export function assertRowsScopedToTenant(
   }
 }
 
-/**
- * Tenant-scoped variant of `dualWriteUpsert`. Refuses to write to a table in `GLOBAL_TABLES`; refuses to write rows whose `tenant_id` doesn't match `tenantId`. Validation happens before any I/O so cross-tenant leaks fail loud at the call site.
- *
- * Phase 7.7a: helper exists; no caller uses it yet. Phase 7.7b threads `tenantId` through every Tier A `sync*` helper and converts them to call this helper instead of `dualWriteUpsert` directly.
- */
+/** Explicit tenant validation precedes every scoped upsert and acknowledgement. */
 export async function dualWriteUpsertScoped(
   table: string,
   rows: ReadonlyArray<{ tenant_id?: string | null } & Record<string, unknown>>,
@@ -159,11 +143,7 @@ export async function dualWriteUpsertScoped(
   await dualWriteUpsert(table, rows as Record<string, unknown>[], primaryKey);
 }
 
-/**
- * Force-stamps `tenant_id = tenantId` on every row. Throws only when an input row already carries a NON-EMPTY `tenant_id` that doesn't match. Empty string, `null`, and `undefined` are all coerced to `tenantId`.
- *
- * Pure / no I/O. Does not mutate input rows (returns a new array).
- */
+/** Pure copy stamps absent/empty tenants; foreign nonempty tenants and empty scopes fail. */
 export function tenantizeRows<
   T extends Record<string, unknown> & { tenant_id?: string | null },
 >(
@@ -203,6 +183,19 @@ export async function syncPageSnapshots(
   rows: PageSnapshot[],
   tenantId: string,
 ): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "page_snapshots");
+  const stamped = tenantizeRows(rows, tenantId, "page_snapshots").map((row) => {
+    const capture = row.content_capture;
+    if (!capture || typeof capture !== "object" || Array.isArray(capture)) return row;
+    return {
+      ...row,
+      content_capture: {
+        ...capture,
+        jsonLd: Array.isArray(capture.jsonLd) ? [...capture.jsonLd] : capture.jsonLd,
+      },
+    };
+  });
+  if (stamped.some((row) => row.content_capture?.complete === true && !extractPageSnapshot.matchesCapture(row))) {
+    throw new Error("[dual-write] page_snapshots: complete capture disagrees with its derived content fields");
+  }
   await dualWriteUpsert("page_snapshots", stamped as unknown as AnyRow[], "id");
 }

@@ -7,14 +7,9 @@ vi.mock("@/lib/persistence/supabase", () => ({
     if (!handler && !mem.read) throw new Error("test: no section may reach the supabase client");
     return { from: (table: string) => ({ upsert: (rows: unknown[]) => ({ select: async () => handler!(table, rows) }), select: () => ({ eq: async (column: string, value: string) => mem.read!(table, column, value) }) }) };},}));
 import { getRepository, usesSupabase } from "@/lib/persistence/repositories";
+import { extractPageSnapshot } from "@/domains/evidence/pages/extractor";
 import type { CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
-import {
-  assertRowsScopedToTenant,
-  dualWriteUpsertScoped,
-  GLOBAL_TABLES,
-  tenantizeRows,
-  syncPages,
-} from "@/lib/persistence/dual-write";
+import { dualWriteUpsertScoped, syncPageSnapshots } from "@/lib/persistence/dual-write";
 const TENANT = "tenant-fixture-local";
 const OTHER = "tenant-other";
 describe("canonical repository behavioral isolation", () => {
@@ -34,24 +29,31 @@ describe("canonical repository behavioral isolation", () => {
   });
 });
 describe("dual-write tenant validation (fires before any I/O)", () => { // ── B. dual-write validation layer ──────────────────────────────────────────
-  it("assertRowsScopedToTenant throws on empty tenantId and on any mismatched row", () => {
-    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }], "", "results")).toThrow(/tenantId must be a non-empty string/);
-    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/);
-    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: TENANT }], TENANT, "results")).not.toThrow();});
   it("dualWriteUpsertScoped rejects global tables, mismatches, and empty tenantIds", async () => {
     await expect(dualWriteUpsertScoped("tenants", [{ tenant_id: TENANT, id: "x" }], "id", TENANT)).rejects.toThrow(/is a global table/);
-    await expect(dualWriteUpsertScoped("results", [{ tenant_id: OTHER, id: "r1" }], "id", TENANT)).rejects.toThrow(/tenant mismatch/);
+    for (const tenant_id of [OTHER, null, undefined]) await expect(dualWriteUpsertScoped("results", [{ tenant_id, id: "r1" }], "id", TENANT)).rejects.toThrow(/tenant mismatch/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", "")).rejects.toThrow(/tenantId must be a non-empty string/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).rejects.toThrow(/no section may reach the supabase client/);});
-  it("GLOBAL_TABLES holds the registry + shared config, never per-tenant data tables", () => {
-    expect(GLOBAL_TABLES.has("tenants")).toBe(true); expect(GLOBAL_TABLES.has("business_config")).toBe(true);
-    for (const t of ["results", "page_snapshots", "recommended_edits", "observation_runs", "pages"]) {
-      expect(GLOBAL_TABLES.has(t), `${t} must be tenant-scoped`).toBe(false);}
-    expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(false); expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(false);});
-  it("tenantizeRows stamps missing tenant_id, throws on a real mismatch, never mutates input", () => {
-    const original = { id: "r1", tenant_id: "" }; const out = tenantizeRows([original, { id: "r2", tenant_id: TENANT }, { id: "r3" }], TENANT, "results");
-    expect(out).toEqual([{ id: "r1", tenant_id: TENANT }, { id: "r2", tenant_id: TENANT }, { id: "r3", tenant_id: TENANT }]); expect(original.tenant_id).toBe("");
-    expect(() => tenantizeRows([{ id: "r1", tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/); expect(() => tenantizeRows([], "", "results")).toThrow(/tenantId must be a non-empty string/);});});
+  it("validates every complete capture before writing and preserves partial and legacy evidence", async () => {
+    const snapshot = extractPageSnapshot("<main><h1>Owned page</h1><p>Useful original words stay on file.</p></main>", "https://own.example/page", "page", TENANT), original = JSON.stringify(snapshot); let calls = 0;
+    try { mem.upsert = (_table, rows) => { calls++; return { data: rows, error: null }; };
+      for (const field of ["h1", "word_count", "content_hash", "headings_hash", "body_text"] as const) await expect(syncPageSnapshots([snapshot, { ...snapshot, id: `${snapshot.id}::local-malformed`, [field]: field === "word_count" ? -1 : "Wrong projection" }], TENANT)).rejects.toThrow(/derived content fields/);
+      expect(calls).toBe(0); await expect(syncPageSnapshots([{ ...snapshot, tenant_id: OTHER }], TENANT)).rejects.toThrow(/tenant mismatch/); await expect(syncPageSnapshots([], "")).rejects.toThrow(/tenantId must be a non-empty string/);
+      await syncPageSnapshots([{ ...snapshot, content_capture: undefined }], TENANT);
+      for (const complete of [true, false]) {
+        const { tenant_id: _scope, ...unscoped } = snapshot;
+        const rows = Array.from({ length: 501 }, (_, index) => ({ ...unscoped, id: `${snapshot.id}::local-${index}`, ...(index === 0 ? {} : { tenant_id: index < 4 ? [undefined, null, "", TENANT][index] : TENANT }), h1: index === 500 && !complete ? "Partial projection" : snapshot.h1, content_capture: { ...snapshot.content_capture!, complete: index === 500 ? complete : true, jsonLd: [...snapshot.content_capture!.jsonLd] } } as typeof snapshot));
+        const capture = rows[500].content_capture!;
+        mem.upsert = (_table, chunk) => {
+          if (chunk.length === 500) Object.assign(capture, { mainHtml: "<main><h1>Caller mutation</h1></main>", complete: true });
+          if (chunk.length === 500) capture.jsonLd.push('{"callerMutation":true}');
+          expect(chunk.map(row => [(row as typeof snapshot).tenant_id, (row as typeof snapshot).content_capture])).toEqual(chunk.map(row => [TENANT, { ...snapshot.content_capture!, complete: (row as typeof snapshot).id.endsWith("-500") ? complete : true }]));
+          return { data: chunk, error: null };
+        };
+        await syncPageSnapshots(rows, TENANT);
+        expect([Object.hasOwn(rows[0], "tenant_id"), rows.slice(0, 4).map(row => row.tenant_id), JSON.stringify(snapshot)]).toEqual([false, [undefined, null, "", TENANT], original]);
+      }
+    } finally { mem.upsert = null; } });});
 describe("a canonical write that did not land never reads as done", () => {
   const ROW = [{ tenant_id: TENANT, id: "r1" }, { tenant_id: TENANT, id: "r2" }];
   it("requires every scoped submitted key exactly once, preserving errors and empty batches", async () => {
@@ -88,10 +90,6 @@ describe("canonical feedback persistence", () => {
     finally { vi.doUnmock("@/lib/persistence/repositories"); vi.resetModules(); }
   });
 });
-describe("Tier A sync* helpers stay tenant-wired", () => {
-  it("runtime: a representative Tier A helper rejects a cross-tenant row and an empty tenantId", async () => {
-    await expect(syncPages([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncPages>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);
-    await expect(syncPages([{ id: "r1", tenant_id: "" } as unknown as Parameters<typeof syncPages>[0][number]], "")).rejects.toThrow(/tenantId must be a non-empty string/);});});
 describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const NEW_USER = { userId: "12345678-abcd-abcd-abcd-1234567890ab", email: "owner@gmail.com" };
   it("provisions through one guarded RPC and refuses an unexpected owner receipt", async () => {

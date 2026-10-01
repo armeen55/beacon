@@ -9,9 +9,7 @@ describe("rendered recovery follows unresolved page identities", () => {
   afterEach(() => { vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); });
   const tenant = "fixture-tenant", current = "2026-09-22T12:00:00.000Z", now = Date.parse(current);
   const recent = "https://fixture.example/recent", unread = "https://fixture.example/unread";
-  const row = (id: string, page_id: string, url: string, fetched_at: string): Row => ({ id, page_id, url, final_url: url, tenant_id: tenant, fetched_at, word_count: 3, http_status: 200,
-    extraction_certainty: "confirmed", content_hash: `hash-${id}`, body_text: "Qualified owned content.",
-    content_capture: { version: 1, complete: true, mainHtml: "<main><p>Qualified owned content.</p></main>", jsonLd: [] }, structural_warnings: [] });
+  const row = (id: string, page_id: string, url: string, fetched_at: string): Row => ({ ...extractPageSnapshot("<main><p>Qualified owned content.</p></main>", url, page_id, tenant, 200, undefined, url), id, fetched_at, extraction_certainty: "confirmed" });
   const inventory = [recent, unread].map((url, index) => ({ tenant_id: tenant, url, crawl_state: "crawled", http_status: 200, is_canonical_target: true, last_crawled_at: `2026-09-${18 + index}T00:00:00.000Z` }));
   it("replays a newer banked rendered task through an active source hold and clears it only after readback", async () => {
     const { winningPagesUnit } = await import("@/domains/evidence/funnel/winning-pages");

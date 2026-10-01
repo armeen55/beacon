@@ -9,6 +9,7 @@ import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { selectPageVersion } from "./page-version";
 import { selectedSnapshots } from "@/lib/persistence/repositories/snapshot-reader";
 import { visibleFaqs, type PageSnapshot } from "./types";
+import { extractPageSnapshot } from "./extractor";
 import { sectionsFrom } from "@/domains/evidence/funnel/research-evidence";
 
 /** Saved page body with version, coverage, and source structure. */
@@ -92,7 +93,7 @@ function bodyOf(row: Row): OwnedPageBody {
     && raw.mainHtml.length + raw.jsonLd.reduce((n, block) => n + block.length, 0) <= CRAWL_BODY_TEXT_CHARS ? raw : undefined;
   const title = cap(row.title, MAX_TITLE_CHARS), h1 = cap(row.h1, MAX_ITEM_CHARS);
   const parsed = (() => { try { return sourceCapture?.mainHtml && /<[a-z][\w-]*(?:\s[^<>]*)?>/i.test(sourceCapture.mainHtml) ? load(sourceCapture.mainHtml) : undefined; } catch { return undefined; } })();
-  const source = parsed && typeof row.body_text === "string" && parsed.root().text().replace(/\s+/g, " ").trim() === row.body_text.trim() ? parsed : undefined;
+  const source = parsed && extractPageSnapshot.matchesCapture(row) ? parsed : undefined;
   const linkedParagraphs: NonNullable<OwnedPageBody["linkedParagraphs"]> = [], capturedLinks: NonNullable<OwnedPageBody["capturedLinks"]> = [], tableRows: NonNullable<OwnedPageBody["tableRows"]> = [];
   if (source && sourceCapture?.complete) {
     const nodes = source("p,a,h1,h2,h3,h4,h5,h6,table").toArray(), flat = (s: string) => s.replace(/\s+/g, " ").trim(); let heading = "";
@@ -141,10 +142,10 @@ function bodyOf(row: Row): OwnedPageBody {
   const pageWords = typeof row.word_count === "number" && row.word_count > 0 ? row.word_count : null;
   // Confirmed empty bodies are real reads; an unqualified blank or excerpts cannot prove absence.
   const sampled = !held || (full.length === 0 && row.extraction_certainty !== "confirmed");
-  const sourceConflict = !!full && !!sourceCapture && !source, truncated = sourceConflict || !sourceCapture || sourceCapture.complete === false || passages.length < stored.length || (full.length >= CRAWL_BODY_TEXT_CHARS);
+  const sourceConflict = !!sourceCapture && !source, truncated = sourceConflict || !sourceCapture || sourceCapture.complete === false || passages.length < stored.length || (full.length >= CRAWL_BODY_TEXT_CHARS);
   const range = passages.length < stored.length
     ? ` Passages 1 to ${passages.length} of the ${stored.length} on file are held here; passages ${passages.length + 1} to ${stored.length} are past the ${MAX_PAGE_CHARS} character ceiling for one page.`
-    : sourceConflict ? " The stored source structure disagrees with the held body text; reconcile that capture before judging or replacing the whole page."
+    : sourceConflict ? " The stored source disagrees with its derived content fields; reconcile that capture before judging or replacing the whole page."
     : !sourceCapture ? " The saved text has no complete source-structure capture; unseen structure and content remain unknown. Reconcile the capture before judging or replacing the whole page."
     : sourceCapture.complete === false ? " The saved main-content capture is incomplete; uncaptured content is unknown, not absent. Reconcile that capture before judging or replacing the whole page." : truncated
       ? ` This page is longer than the ${CRAWL_BODY_TEXT_CHARS} characters one crawl keeps, so the end of it is not on file.`

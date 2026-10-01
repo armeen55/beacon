@@ -1,7 +1,4 @@
-/**
- * Cheerio-based HTML extractor for owned page snapshots.
- * Pure function: HTML string in → structured PageSnapshot out.
- */
+/** Pure owned-page HTML extraction through the canonical Cheerio boundary. */
 
 import { load as cheerioLoad } from "cheerio";
 import { createHash } from "node:crypto";
@@ -383,18 +380,20 @@ export function extractPageSnapshot(
   };
 }
 
-// ── Helpers ──
+/** Check held main-content projections without rewriting the observed source or metadata. */
+extractPageSnapshot.matchesCapture = (row: Partial<Record<keyof PageSnapshot, unknown>>): boolean => {
+  const capture = row.content_capture as PageSnapshot["content_capture"];
+  if (capture?.version !== 1 || typeof capture.mainHtml !== "string" || typeof capture.complete !== "boolean"
+    || !Array.isArray(capture.jsonLd) || !capture.jsonLd.every((block) => typeof block === "string")
+    || capture.mainHtml.length + capture.jsonLd.reduce((size, block) => size + block.length, 0) > BODY_TEXT_CEILING) return false;
+  if (typeof row.url !== "string" || typeof row.page_id !== "string" || typeof row.tenant_id !== "string" || !row.tenant_id) return false;
+  try {
+    const derived = extractPageSnapshot(`<html><body>${capture.mainHtml}</body></html>`, row.url, row.page_id, row.tenant_id);
+    return (["h1", "word_count", "content_hash", "headings_hash", "body_text"] as const).every((field) => row[field] === derived[field]);
+  } catch { return false; }
+};
 
-/**
- * N19 (2026-07-02): normalize extracted node text before word-counting it.
- * Some page builders (observed live on Wix) leave editor-placeholder <p>
- * tags containing nothing but a zero-width space (U+200B) or other
- * invisible whitespace where a paragraph used to be. `String.trim()` does
- * NOT strip U+200B, so without this a placeholder reads as "1 word" of
- * real text under a naive split. This strips the invisible characters
- * FIRST so those placeholders correctly collapse to an empty string and
- * fall below the word-count floor like any other empty node.
- */
+/** Normalize builder placeholders and whitespace in readable text projections. */
 function normalizeExtractedText(raw: string): string {
   return (raw ?? "")
     .replace(/[​‌‍﻿ ]/g, " ")
