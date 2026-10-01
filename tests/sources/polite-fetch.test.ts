@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { fetchPageHtml } from "@/domains/evidence/competitor-intel/polite-fetch";
 
 const A = "https://publisher.example/a", B = "https://other.example/b", R = "https://publisher.example/robots.txt", S = "https://other.example/robots.txt";
@@ -34,6 +35,7 @@ it("enforces robots, pinned destination checks, redirects and the 500 KiB parser
     { name: "loop", plan: { ...absent, [A]: moved(B), [S]: { status: 404 }, [B]: moved(A) }, calls: [R, A, S, B], outcome: { ok: false } },
     { name: "hop cap", plan: { ...absent, ...chain }, calls: [R, A, ...[1, 2, 3, 4].map((i) => `https://publisher.example/${i}`)], outcome: { ok: false }, skip: "https://publisher.example/5" },
   ];
+  const savedOnly = run({ [R]: ok(ALLOW), [A]: ok("<main>Uncached answer</main>") }); await PROOF_SPEND.run("tenant-a", 8, 0, async () => { expect(await savedOnly.read()).toMatchObject({ ok: false, reason: "fetch_failed" }); expect(savedOnly.calls).toEqual([]); });
   for (const { name, plan, calls, outcome, start, repeat, skip } of cases) {
     const caseRun = run(plan, start); expect(await caseRun.read(), name).toMatchObject(outcome);
     if (repeat) expect(await caseRun.read(), `${name} cached`).toMatchObject(outcome);

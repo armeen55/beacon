@@ -64,7 +64,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   const cacheKey = r.cacheKey;
   const now = d.now();
   const paths = { getPath: (_e: string, id: string) => r.getPath?.(id) ?? null, tasksReadyPath: () => r.tasksReadyPath, ttlMsFor: () => r.ttlMs };
-  if (!isDataForSeoConfigured(d.env)) { try { const saved = await d.cacheRead(cacheKey); if (saved?.cache_key === cacheKey && saved.endpoint === r.postPath && saved.status === "ready" && saved.payload != null && Date.parse(saved.expires_at) > now.getTime()) return { state: "hit", envelope: saved.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: saved.model_served }; } catch { return { state: "error", cacheKey, disposition: "none", detail: "Saved evidence could not be read; no provider call was made." }; } return { state: "not_configured", cacheKey, detail: "DataForSEO not configured" }; }
+  if (PROOF_SPEND.cacheOnly() || !isDataForSeoConfigured(d.env)) { try { const saved = await d.cacheRead(cacheKey); if (saved?.cache_key === cacheKey && saved.endpoint === r.postPath && saved.status === "ready" && !saved.quarantined_at && !saved.error_detail && saved.payload != null && Date.parse(saved.expires_at) > now.getTime()) return { state: "hit", envelope: saved.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: saved.model_served }; } catch { return { state: "error", cacheKey, disposition: "none", detail: "Saved evidence could not be read; no provider call was made." }; } return PROOF_SPEND.cacheOnly() && isDataForSeoConfigured(d.env) ? { state: "capped", cacheKey, detail: "The saved-only request has no fresh complete cached answer; no provider was called." } : { state: "not_configured", cacheKey, detail: "DataForSEO not configured" }; }
   let claim: EvidenceCacheClaim;
   try {
     claim = await d.claimEvidenceFetch({
@@ -243,20 +243,20 @@ export async function collectResolvedTask(
   try { row = await d.cacheRead(cacheKey); } catch {
     return { state: "error", cacheKey, disposition: "none", detail: "The fetch records could not be read, so the provider is not called until they can be." };
   }
-  if (!row) return { state: "error", cacheKey, disposition: "none", detail: "No provider task is on record here, so this one starts fresh." };
+  if (!row || PROOF_SPEND.cacheOnly() && (row.cache_key !== cacheKey || !paths.getPath(row.endpoint, row.provider_task_id ?? ""))) return { state: "error", cacheKey, disposition: "none", detail: "No matching canonical provider task is on record here; no provider was called." };
   const replay = deps.serpReplay as { tenantId: string; query: string; maxAgeMs: number } | undefined;
-  if (row.status === "ready" && row.payload != null && replay) {
+  if (row.status === "ready" && !row.quarantined_at && !row.error_detail && row.payload != null && replay) {
     const task = firstTask(row.payload), result = Array.isArray(task?.result) ? task.result[0] as Record<string, unknown> | undefined : undefined;
     const keyword = typeof result?.keyword === "string" ? result.keyword.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim() : null, query = replay.query?.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
     if (row.cache_key !== cacheKey || row.endpoint !== "serp/google/organic/task_post" || !replay.tenantId || row.provenance?.tenantId != null && row.provenance.tenantId !== replay.tenantId || !row.provider_task_id || task?.id !== row.provider_task_id || topStatus(row.payload) !== 20000 || task?.status_code !== 20000 || !query || keyword !== query || !(replay.maxAgeMs > 0 && replay.maxAgeMs <= 7 * DAY_MS)) return { state: "error", cacheKey, disposition: "none", detail: "Saved search evidence does not match this account, task, query, or freshness window; no provider call was made." };
     const observedAt = typeof result?.datetime === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(result.datetime) ? Date.parse(result.datetime) : NaN;
-    if (!Number.isFinite(observedAt) || observedAt > now.getTime()) return { state: "error", cacheKey, disposition: "none", detail: "Saved search evidence has no valid provider observation date; no provider call was made." };
+    if (!Number.isFinite(observedAt) || observedAt > now.getTime() || PROOF_SPEND.cacheOnly() && (!(Date.parse(row.expires_at) > now.getTime()) || now.getTime() - observedAt > replay.maxAgeMs)) return { state: "error", cacheKey, disposition: "none", detail: "Saved search evidence has no valid provider observation date; no provider call was made." };
     return { state: "hit", envelope: row.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served }; // Completed evidence keeps its date; the caller owns currentness and due refresh.
-  } else if (row.status === "ready" && row.payload != null && Date.parse(row.expires_at) > now.getTime()) return { state: "hit", envelope: row.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
+  } else if (row.status === "ready" && !row.quarantined_at && !row.error_detail && row.payload != null && Date.parse(row.expires_at) > now.getTime()) return { state: "hit", envelope: row.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: row.model_served };
   const refused = blockedReason(row);
   if (refused) return blockedResult(cacheKey, refused);
   if (row.error_detail?.startsWith("unavailable:")) return unavailableResult(cacheKey);
-  const spendReceipt = row.spend_attempt_id ? await d.spend.read(row.spend_attempt_id).catch(() => null) : null;
+  const spendReceipt = !PROOF_SPEND.cacheOnly() && row.spend_attempt_id ? await d.spend.read(row.spend_attempt_id).catch(() => null) : null;
   if (spendReceipt?.state === "reconciled" && spendReceipt.resultPayload != null) {
     const stored = readLiveResult(spendReceipt.resultPayload);
     if (!stored.valid) return { state: "error", cacheKey, disposition: "quarantined", detail: "A paid provider envelope is on file, but it is not usable. It remains held and is not bought again." };
@@ -277,11 +277,11 @@ export async function collectResolvedTask(
     taskId = spendReceipt?.providerTaskId ?? null;
     if (taskId) await d.cacheWrite(cacheKey, { provider_task_id: taskId, next_poll_at: row.next_poll_at ?? now.toISOString() }).catch(() => {});
   }
-  if (!taskId && row.quarantined_at) {
+  if (!taskId && row.quarantined_at && !PROOF_SPEND.cacheOnly()) {
     taskId = await recoverQuarantined(d, cacheKey, row.spend_attempt_id ?? cacheKey, paths.tasksReadyPath(row.endpoint), now, stopBy);
     if (!taskId) return { state: "error", cacheKey, disposition: "quarantined", detail: "This one is paused because what the provider did with it could not be confirmed. It is held and checked against the provider's free finished-task list, and never paid for twice." };
   }
-  if (!taskId) return { state: "waiting", cacheKey, providerTaskId: null, costUsd: 0, detail: "Another run is already fetching this. Its result is picked up when it lands." };
+  if (!taskId || PROOF_SPEND.cacheOnly()) return { state: "waiting", cacheKey, providerTaskId: taskId, costUsd: 0, detail: PROOF_SPEND.cacheOnly() ? "The saved-only request keeps this unresolved task without polling or rebuilding its cache." : "Another run is already fetching this. Its result is picked up when it lands." };
   const recordedAt = Date.parse(row.posted_at ?? ""), postedAt = Number.isFinite(recordedAt) ? recordedAt : now.getTime();
   if (!Number.isFinite(recordedAt)) await d.cacheWrite(cacheKey, { posted_at: now.toISOString() }).catch(() => {});
   const deadlineDue = now.getTime() - postedAt >= PROVIDER_TASK_MAX_MS;

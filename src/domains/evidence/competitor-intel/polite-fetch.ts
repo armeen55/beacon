@@ -13,6 +13,7 @@
  */
 
 import type { ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence";
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { perfCountExternal } from "@/lib/obs/perf-log";
 import { isSafeRedirectHopUrl, safeFetchSourceText } from "@/lib/net/safe-source-fetch";
 import { parseRobotsText, type RobotsFile } from "../pages/robots-parser";
@@ -123,6 +124,7 @@ export async function fetchPageHtml(
   robotsCache: Map<string, RobotsFile["directives"]>,
   deps: PoliteFetchDeps = {},
 ): Promise<PoliteHtmlResult> {
+  if (PROOF_SPEND.cacheOnly()) return { ok: false, reason: "fetch_failed", detail: "Saved-only work cannot fetch public pages or robots." };
   const verdict = await robotsVerdictFor(url, robotsCache, deps);
   if (verdict === "blocked") return { ok: false, reason: "robots_blocked" };
   let denied = false;
@@ -165,6 +167,7 @@ function isGeminiWrapperUrl(url: string): boolean {
  *  names, private/reserved literal IPs): a redirect chain is attacker-shaped
  *  input and may never point inside the deployment. Null on any failure. */
 async function resolveOneRedirect(startUrl: string, fetchImpl: typeof fetch): Promise<string | null> {
+  if (PROOF_SPEND.cacheOnly()) return null;
   let current = startUrl;
   for (let hop = 0; hop < MAX_REDIRECT_HOPS; hop++) {
     let res: Response;

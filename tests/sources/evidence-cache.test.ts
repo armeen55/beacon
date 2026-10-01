@@ -4,7 +4,7 @@ import { PROOF_SPEND, runWithoutSpending } from "@/lib/spend-scope";
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ from: () => ({ update: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }) }) }) }));
 const ENV = { DATAFORSEO_AUTH_B64: "abc" } as unknown as NodeJS.ProcessEnv;
 const NOW = new Date("2026-07-25T12:00:00.000Z"); const FUTURE = new Date(NOW.getTime() + 86_400_000).toISOString(); const SERP = "serp/google/organic";
-const PATHS = { getPath: (_e: string, id: string) => `${SERP}/task_get/advanced/${id}`, tasksReadyPath: () => `${SERP}/tasks_ready`, ttlMsFor: () => 86_400_000 };
+const PATHS = { getPath: (endpoint: string, id: string) => endpoint === `${SERP}/task_post` ? `${SERP}/task_get/advanced/${id}` : null, tasksReadyPath: () => `${SERP}/tasks_ready`, ttlMsFor: () => 86_400_000 };
 function resolved(over: Partial<ResolvedCall> = {}): ResolvedCall {
   const base: ResolvedCall = { cacheKey: "", endpoint: `${SERP}/live/advanced`, endpointVersion: "v3", postPath: `${SERP}/live/advanced`, getPath: null, tasksReadyPath: null, device: null,
     publicInput: { keyword: "koobideh", depth: 10 }, locationCode: 2840, languageCode: "en", modelRequested: null, payload: [{ keyword: "koobideh" }], ttlMs: 60_000, estCostUsd: 0.01, mode: "live", tenantId: "tenant-a", purpose: "bulk", ...over };
@@ -81,41 +81,31 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     expect([out.state, out.state === "ok" && out.costUsd, g.calls.life.at(-1)])
       .toEqual(["ok", 0.004, ["reconcile", 0.004, null]]);
   });
-  it("rebuilds LIVE and final Standard cache rows from a replayed paid envelope despite a closed breaker", async () => {
+  it("rebuilds LIVE and final Standard cache projections from replayed or quarantined paid receipts without repurchasing", async () => {
     const body = liveOk(0.0021, [{ rank: 3 }]);
-    for (const call of [resolved(), taskCall()]) { const g = makeDeps({ breaker: async () => ({ tripped: true, reason: "today is closed" }) });
-      (g.deps.spend as CachedCallDeps["spend"]).reserve = async () => ({ outcome: "replayed", attemptId: "a1",
-        attemptOrdinal: 1, state: "reconciled", reportingDay: "2026-07-25", estimatedUsd: 0.01,
-        accountedUsd: 0.0021, providerTaskId: "task-9", accountingBasis: "provider_reported", resultPayload: body });
+    for (const call of [resolved(), taskCall()]) for (const quarantine of [false, true]) {
+      const g = makeDeps({ breaker: async () => ({ tripped: true, reason: "today is closed" }), ...(quarantine ? { claimEvidenceFetch: claim("pending"), cacheRead: row({ endpoint: call.postPath, provider_task_id: call.mode === "live" ? null : "task-9", spend_attempt_id: "a1", quarantined_at: NOW.toISOString(), error_detail: "uncertain:cache write failed" }) } : {}) }), spend = g.deps.spend as CachedCallDeps["spend"];
+      const receipt = { state: "reconciled" as const, accountedUsd: .0021, providerTaskId: call.mode === "live" ? null : "task-9", accountingBasis: "provider_reported" as const, resultPayload: body };
+      spend.read = async () => receipt; spend.reserve = async () => ({ ...receipt, outcome: "replayed", attemptId: "a1", attemptOrdinal: 1, reportingDay: "2026-07-25", estimatedUsd: .01 });
       const out = await runResolvedCall(call, g.deps);
-      expect([out.state, out.state === "hit" && out.costUsd, g.calls.fetch.length, g.calls.writes.some((w) => w.status === "ready"), g.calls.adjust]).toEqual(["hit", 0, 0, true, []]);
-      expect(out.state === "hit" && out.envelope.tasks?.[0]?.result).toEqual([{ rank: 3 }]); }
-  });
-  it("repairs a quarantined LIVE cache projection from its reconciled spend receipt at zero cost", async () => {
-    const body = liveOk(0.0021, [{ rank: 4 }]); const g = makeDeps({ claimEvidenceFetch: claim("pending"), cacheRead: row({ endpoint: `${SERP}/live/advanced`,
-      provider_task_id: null, spend_attempt_id: "a1", quarantined_at: NOW.toISOString(), error_detail: "uncertain:cache write failed" }) });
-    (g.deps.spend as CachedCallDeps["spend"]).read = async () => ({ state: "reconciled", providerTaskId: null,
-      accountedUsd: 0.0021, accountingBasis: "provider_reported", resultPayload: body });
-    const out = await runResolvedCall(resolved(), g.deps);
-    expect([out.state, out.state === "hit" && out.costUsd, g.calls.fetch.length, g.calls.reserve.length]).toEqual(["hit", 0, 0, 0]);
-    expect(out.state === "hit" && out.envelope.tasks?.[0]?.result).toEqual([{ rank: 4 }]);
+      expect([out.state, out.state === "hit" && out.costUsd, out.state === "hit" && out.envelope.tasks?.[0]?.result, g.calls.fetch, g.calls.reserve, g.calls.writes.some(w => w.status === "ready"), g.calls.adjust]).toEqual(["hit", 0, [{ rank: 3 }], [], [], true, []]);
+    }
   });
   it("concurrent identical misses (second claim is pending) pay at most once", async () => {
     let n = 0; const { deps, calls } = makeDeps({ claimEvidenceFetch: async () => claim(n++ === 0 ? "claimed" : "pending")() }); const [r1, r2] = await Promise.all([runResolvedCall(resolved(), deps), runResolvedCall(resolved(), deps)]);
     const pending = [r1, r2].find((r) => r.state === "waiting");
     expect([[r1.state, r2.state].sort(), calls.fetch.length, pending?.state === "waiting" && pending.costUsd]).toEqual([["ok", "waiting"], 1, 0]); // a bare pending claim charges nothing
   });
-  it("no un-paid path (cap / reserve-throw / breaker / not_configured) ever touches the network", async () => {
+  it("closed money paths and exact saved-only cache identities never reserve, claim or transmit", async () => {
+    const a = identityCacheKey(resolved()); expect([identityCacheKey(resolved({ tenantId: "tenant-b" })), [identityCacheKey(resolved({ locationCode: 2826 })), identityCacheKey(resolved({ modelRequested: "gpt-4o" }))].includes(a)]).toEqual([a, false]);
     const spy = vi.fn(), missRead = vi.fn(async () => null), states = []; const cap = makeDeps({}, "refuse"), rerr = makeDeps({}, "throw");
     const brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) }), nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never, cacheRead: missRead });
     for (const g of [cap, rerr, brk, nc]) { states.push((await runResolvedCall(resolved(), g.deps)).state); expect(g.calls.fetch).toHaveLength(0); }
     expect(states).toEqual(["capped", "error", "capped", "not_configured"]);
     expect([brk.calls.reserve, brk.calls.adjust, nc.calls.reserve]).toEqual([[0.01], [-0.01], []]); // the receipt inbox precedes the breaker; a new reservation is returned untouched
-    expect([spy.mock.calls.length, missRead.mock.calls.length, nc.calls.writes.length]).toEqual([0, 1, 0]); const exact = resolved(), saved = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never, cacheRead: row({ cache_key: exact.cacheKey, endpoint: exact.postPath, status: "ready", payload: liveOk(0.0021), expires_at: FUTURE }) }); const hit = await runResolvedCall(exact, saved.deps); expect([hit.state, hit.state === "hit" && hit.envelope.tasks?.[0]?.result, saved.calls.fetch.length, saved.calls.reserve.length, saved.calls.writes.length, spy.mock.calls.length]).toEqual(["hit", [{ rank: 1 }], 0, 0, 0, 0]); // read-only hit or miss: no lease, reservation, write, or provider
-  });
-  it("cache identity has NO tenant input and splits on location / model", async () => {
-    const a = identityCacheKey(resolved()), others = [identityCacheKey(resolved({ locationCode: 2826 })), identityCacheKey(resolved({ modelRequested: "gpt-4o" }))];
-    expect([identityCacheKey(resolved({ tenantId: "tenant-b" })), others.includes(a)]).toEqual([a, false]); // tenant never enters identity; location and model always split it
+    expect([spy.mock.calls.length, missRead.mock.calls.length, nc.calls.writes.length]).toEqual([0, 1, 0]); const exact = resolved(), saved = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never, cacheRead: row({ cache_key: exact.cacheKey, endpoint: exact.postPath, status: "ready", payload: liveOk(0.0021), expires_at: FUTURE }) }); const hit = await runResolvedCall(exact, saved.deps); expect([hit.state, hit.state === "hit" && hit.envelope.tasks?.[0]?.result, saved.calls.fetch.length, saved.calls.reserve.length, saved.calls.writes.length, spy.mock.calls.length]).toEqual(["hit", [{ rank: 1 }], 0, 0, 0, 0 ]);
+    await PROOF_SPEND.run("tenant-a", 8, 0, async () => {
+      for (const change of [{}, { cache_key: "other" }, { endpoint: "other" }, { status: "pending" }, { expires_at: "invalid" }, { expires_at: NOW.toISOString() }, { quarantined_at: NOW.toISOString() }, { error_detail: "uncertain:held" }, { payload: null }]) { const claimRead = vi.fn(), g = makeDeps({ claimEvidenceFetch: claimRead as never, cacheRead: row({ cache_key: exact.cacheKey, endpoint: exact.postPath, status: "ready", payload: liveOk(.0021), expires_at: FUTURE, ...change }) }), out = await runResolvedCall(exact, g.deps); expect([out.state, g.calls.fetch, g.calls.reserve, g.calls.writes, claimRead.mock.calls.length]).toEqual([Object.keys(change).length ? "capped" : "hit", [], [], [], 0]); } expect(PROOF_SPEND.meter("tenant-a")).toMatchObject({ modelCalls: 0, externalCalls: 0, modelReservedUsd: 0, externalReservedUsd: 0 }); });
   });
   it("a REPORTED zero cost is refunded and BLOCKED durably unless the exact code is a documented temporary failure; an unknown cost quarantines", async () => { // 50100 terminal, 50401/50402 live timeouts (any retry is a NEW paid call), 61234 undocumented, 40401 collection-only (a fresh POST proves nothing) -> blocked. 50301/50000 -> the ONE retry path.
     const cases: [number, number | undefined, "blocked" | "none" | "quarantined"][] = [
@@ -148,6 +138,8 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
     const g = makeDeps({ env: {} as NodeJS.ProcessEnv, now: () => now, cacheRead: row(saved) }); const hit = await collectResolvedTask(key, PATHS, { ...g.deps, serpReplay: replay }); expect([hit.state, hit.state === "hit" && hit.envelope, g.calls.fetch, g.calls.reserve, g.calls.writes]).toEqual(["hit", body, [], [], []]);
     for (const change of [{ cache_key: "foreign-key" }, { provider_task_id: "wrong-task" }, { provenance: { tenantId: "foreign-tenant" } }, ...[undefined, "invalid", "2026-09-28 07:52:08 +00:00"].map(datetime => ({ payload: { ...body, tasks: [{ ...body.tasks[0], result: [{ keyword: query, datetime }] }] } })), { payload: { ...body, tasks: [{ ...body.tasks[0], result: [{ keyword: "persian wedding traditions", datetime: "2026-09-23 07:52:08 +00:00" }] }] } }]) { const bad = makeDeps({ now: () => now, cacheRead: row({ ...saved, ...change }) }); const out = await collectResolvedTask(key, PATHS, { ...bad.deps, serpReplay: replay }); expect([out.state, bad.calls.fetch, bad.calls.reserve, bad.calls.writes]).toEqual(["error", [], [], []]); }
     for (const policy of [undefined, { ...replay, maxAgeMs: 86_400_000 }, replay]) { const stale = makeDeps({ now: () => policy === replay ? new Date(now.getTime() + 7 * 86_400_000) : now, cacheRead: row(saved) }); stale.deps.fetchImpl = fetcher(stale.calls, () => inBody(40601)); const out = await collectResolvedTask(key, PATHS, { ...stale.deps, serpReplay: policy }); expect([out.state, stale.calls.fetch.length, stale.calls.reserve, policy && stale.calls.writes, out.state === "hit" && out.envelope]).toEqual([policy ? "hit" : "error", policy ? 0 : 1, [], policy && [], policy ? body : false]); }
+    await PROOF_SPEND.run("tenant-a", 8, 0, async () => {
+      for (const change of [{}, { cache_key: "other" }, { endpoint: "unknown" }, { status: "pending" }, { expires_at: "invalid" }, { expires_at: now.toISOString() }, { quarantined_at: now.toISOString() }, { error_detail: "uncertain:held" }]) { const held = makeDeps({ now: () => now, cacheRead: row({ ...saved, expires_at: new Date(now.getTime() + 86_400_000).toISOString(), ...change }) }), spend = held.deps.spend as CachedCallDeps["spend"]; spend.read = vi.fn(async () => ({ state: "reconciled", providerTaskId: id, resultPayload: body })); const out = await collectResolvedTask(key, PATHS, { ...held.deps, serpReplay: replay }); expect([out.state === "hit", held.calls.fetch, held.calls.reserve, held.calls.writes, vi.mocked(spend.read).mock.calls.length]).toEqual([Object.keys(change).length === 0, [], [], [], 0]); } const fresh = makeDeps({ now: () => now, cacheRead: row({ ...saved, expires_at: new Date(now.getTime() + 86_400_000).toISOString() }) }); expect((await collectResolvedTask(key, PATHS, { ...fresh.deps, serpReplay: replay })).state).toBe("hit"); });
   });
   it("aborts a stalled free GET within its remaining collection time and keeps the paid task pending", async () => {
     let request: RequestInit | undefined; const g = makeDeps({ cacheRead: row(), fetchImpl: vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => { request = init; init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }); })) as unknown as typeof fetch });

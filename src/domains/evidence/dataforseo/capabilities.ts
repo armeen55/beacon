@@ -188,7 +188,7 @@ export async function providerCall<K extends CapabilityKey>(
     : rawStop?.error_detail?.startsWith("raw_html_charge:") ? "Raw HTML reported an unexpected charge. Rendered page purchases are held for investigation."
     : await peek(ids.tenantId).catch(() => "clear" as const) === "held" ? CREDIT_BREAKER.sentence("openai")
     : await peek(ids.tenantId, {}, "dataforseo").catch(() => "clear" as const) === "held" ? CREDIT_BREAKER.sentence("dataforseo") : null;
-  if (blocked && capability !== "onpage_rendered_html" && !(capability === "serp_organic" && ids.exactSerp === true && PROOF_SPEND.meter(ids.tenantId) !== null)) return { state: "capped", cacheKey: null, detail: blocked };
+  if (blocked && !PROOF_SPEND.cacheOnly() && capability !== "onpage_rendered_html" && !(capability === "serp_organic" && ids.exactSerp === true && PROOF_SPEND.meter(ids.tenantId) !== null)) return { state: "capped", cacheKey: null, detail: blocked };
   const entry = REGISTRY[capability];
   let resolution: EngineModelResolution | null = null, modelRequested: string | null = null;
   if (entry.engine) { // ONE resolution: the method routes the call AND the model rides the request
@@ -432,7 +432,7 @@ async function hydrateRendered(result: Extract<CachedCallResult, { state: "ok" |
     if (stop?.error_detail?.startsWith("raw_html_charge:")) return { state: "error", cacheKey: result.cacheKey, disposition: "quarantined", detail: "Raw HTML previously reported a charge. Rendered acquisition is held without another provider request." }; }
   catch { return { state: "error", cacheKey: result.cacheKey, disposition: "none", detail: "The page safety records could not be checked, so no raw HTML request was sent." }; }
   if (row?.error_detail?.startsWith("raw_html_charge:")) return { state: "error", cacheKey: result.cacheKey, disposition: "quarantined", detail: "Raw HTML previously reported a charge. This page is held without another provider request." };
-  if (row?.error_detail?.startsWith("raw_html_mismatch:")) return { state: "error", cacheKey: result.cacheKey, disposition: "quarantined", detail: "Saved Raw HTML disagreed with the paid page. This task awaits a new page revision." };
+  if (row?.error_detail?.startsWith("raw_html_mismatch:") || PROOF_SPEND.cacheOnly()) return { state: "error", cacheKey: result.cacheKey, disposition: row?.error_detail?.startsWith("raw_html_mismatch:") ? "quarantined" : "none", detail: PROOF_SPEND.cacheOnly() ? "The saved page needs HTML that is not cached; no hydration request was sent." : "Saved Raw HTML disagreed with the paid page. This task awaits a new page revision." };
   const raw = await runDataForSeoTransport({ url: `${DFS_API_BASE}/on_page/raw_html`, payload: [{ id: task.id, url }], env: d.env, fetchImpl: d.fetchImpl, perfDetail: "evidence-raw-html", timeoutMs: 15_000, maxResponseBytes: 16_000_000 });
   const body = raw.body as { status_code?: number; cost?: number; tasks?: Array<{ id?: string; status_code?: number; cost?: number; data?: { id?: string; url?: string }; result?: Array<{ items?: { html?: unknown } }> }> } | undefined;
   const freeTask = body?.tasks?.[0], html = freeTask?.result?.[0]?.items?.html;

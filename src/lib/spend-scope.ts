@@ -17,9 +17,9 @@ export function runWithoutSpending<T>(fn: () => T): T { return noSpend.run(true,
 
 export const PROOF_SPEND = {
   run<T>(tenantId: string, maxCalls: number, maxUsd: number, fn: () => T, policy: ProofPolicy = { maxExternalCalls: 0, maxExternalUsd: 0 }): T {
-    if (proofSpend.getStore() || !tenantId || !Number.isInteger(maxCalls) || maxCalls < 1 || !Number.isFinite(maxUsd) || maxUsd <= 0
+    if (proofSpend.getStore() || !tenantId || !Number.isInteger(maxCalls) || maxCalls < 1 || !Number.isFinite(maxUsd) || maxUsd < 0
       || !Number.isInteger(policy.maxExternalCalls) || policy.maxExternalCalls < 0 || !Number.isFinite(policy.maxExternalUsd) || policy.maxExternalUsd < 0
-      || policy.maxExternalCalls > 0 && (policy.maxExternalUsd <= 0 || !policy.allowedExternal?.length) || policy.stopBy != null && !Number.isFinite(policy.stopBy)
+      || maxUsd === 0 && policy.maxExternalUsd !== 0 || policy.maxExternalCalls > 0 && (policy.maxExternalUsd <= 0 || !policy.allowedExternal?.length) || policy.stopBy != null && !Number.isFinite(policy.stopBy)
       || policy.allowedExternal?.some((target) => !targetIdentity(target))) throw new Error("invalid proof spending ceiling");
     return proofSpend.run({ tenantId, maxCalls, maxUsd, policy: { ...policy, allowedExternal: policy.allowedExternal?.map((target) => ({ ...target })) },
       stop: { closed: false }, meter: { modelCalls: 0, modelReservedUsd: 0, externalCalls: 0, externalReservedUsd: 0 } }, fn);
@@ -36,7 +36,8 @@ export const PROOF_SPEND = {
     held.policy.allowedExternal = [...(held.policy.allowedExternal ?? []), ...urls.map((url) => ({ capability: "onpage_content_parsing", url }))];
     return true;
   },
-  activeFor(tenantId: string): boolean | null { if (noSpend.getStore() === true) return false; const held = proofSpend.getStore(); return held ? held.tenantId === tenantId : null; },
+  cacheOnly(): boolean { return proofSpend.getStore()?.maxUsd === 0; },
+  activeFor(tenantId: string): boolean | null { if (noSpend.getStore() === true) return false; const held = proofSpend.getStore(); return held ? held.tenantId === tenantId && held.maxUsd > 0 : null; },
   externalClosed(tenantId: string, target?: ExternalTarget): boolean | null {
     if (noSpend.getStore() === true) return true;
     const held = proofSpend.getStore(); if (!held) return null;

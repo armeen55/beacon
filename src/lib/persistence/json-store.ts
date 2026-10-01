@@ -1,6 +1,6 @@
 /**
- * On-disk JSON store + in-process cache for `.data/*.json`. Source of truth on disk when DATA_SOURCE=file,
- * write-through target when DATA_SOURCE=supabase; route reads go through SeedDataRepository. Async first
+ * Supabase-backed reads and scoped in-process cache; legacy atomic file writes remain for local writers.
+ * Route records use the canonical repository. Async first
  * read (cached per resolved tenant/global key), atomic temp-file+rename writes, writes serialized per
  * resolved cache key. Tenant-aware routing to `.data/tenants/{slug}/{name}.json` / `.data/global/{name}.json`
  * (Sprint 7, 2026-04-25/26): unknown stores throw fail-loud naming the classification module, never a silent
@@ -22,7 +22,7 @@ import { resolveDataPath } from "./resolve-data-path";
 /**
  * Supabase-mirrored stores (2026-07-01): file-only writes skip disk on Vercel, so hosted prod rendered from
  * empty caches. Names here mirror to `json_store_blobs` (one jsonb blob per resolved scope key; read: row
- * wins, else file; write: file then best-effort upsert). Fail-soft to exactly the old file behavior.
+ * wins; successful absence uses defaults; write: file then best-effort upsert).
  */
 export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // Pruned to the stores with a SURVIVING live reader/writer: a mirror registration for a
@@ -66,7 +66,7 @@ function isMissingBlobsTable(error: { code?: string } | null | undefined): boole
   return code === "42P01" || code === "PGRST205";
 }
 
-/** MISSING IS NOT UNAVAILABLE. This answered `null` to both "no row for this key" and "could not be read", so the caller could only treat the second as the first: after a mirrored key aged out, one transient Supabase failure sent the read to a file hosted does not have, then to the caller's `[]`, which was cached and stamped freshly read, and a saved release could disappear from Today and Changes for the length of a TTL while valid truth sat in hand. A missing TABLE is configuration rather than an outage, so it stays `reachable` and keeps the file behaviour local and test runs have always had. */
+/** Successful absence is distinct from unavailable or malformed saved truth. */
 type Mirror = { rows: unknown[] | null; reachable: boolean };
 async function readMirroredBlob(scopeKey: string, storeName: string): Promise<Mirror> {
   try {
@@ -80,12 +80,13 @@ async function readMirroredBlob(scopeKey: string, storeName: string): Promise<Mi
       // EVERY DATABASE ERROR IS UNAVAILABLE, a missing table included: PGRST205 is a schema-cache incident as
       // often as it is configuration, and classing it reachable let one such error erase a warm known-good
       // release (Codex, 2026-08-28). Only a SUCCESSFUL read with no row is genuinely missing. A missing table
-      // stays quiet in the logs and, cold, still falls through to the file behaviour local runs rely on.
+      // stays quiet in the logs; a cold unavailable read must fail.
       if (!isMissingBlobsTable(error)) console.error(`[json-store] blob read failed for ${scopeKey}: ${error.message ?? String(error)}`);
       return { rows: null, reachable: false };
     }
-    const content = (data as { content?: unknown } | null)?.content;
-    return { rows: Array.isArray(content) ? content : null, reachable: true };
+    if (data === null) return { rows: null, reachable: true };
+    const content = (data as { content?: unknown } | undefined)?.content;
+    return { rows: Array.isArray(content) ? content : null, reachable: Array.isArray(content) };
   } catch {
     return { rows: null, reachable: false }; // no env / client init failed
   }
@@ -110,11 +111,8 @@ async function writeMirroredBlob(scopeKey: string, storeName: string, data: unkn
 /** Computed at call time (not module load) so tests can
  *  `process.chdir()` into a tmpdir and have ensureDataDir follow. */
 function ensureDataDir(dir: string): void {
-  // Phase 3.5A (2026-04-22): Vercel/serverless filesystems are read-only
-  // under process.cwd(); skip the mkdir on hosted so readers fall through
-  // to their existsSync check (which returns false for missing files on
-  // Vercel) and return empty arrays without crashing the route. Writers
-  // already skip disk on VERCEL=1 below.
+  // Vercel/serverless filesystems are read-only under process.cwd().
+  // Legacy local writers create their routed directory; hosted writers skip disk below.
   if (process.env.VERCEL === "1") return;
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
@@ -143,7 +141,7 @@ const writeLocks = new Map<string, Promise<void>>();
  * (cache key includes tenant scope, so different tenants don't share).
  *
  * Phase 7.8d-1: unknown-scope reads throw fail-loud. Known stores
- * with no routed file yet return the caller's `fallback` (or `[]`).
+ * with no canonical row yet return the caller's `fallback` (or `[]`).
  *
  * P2-f (2026-07-10, visual audit) - `opts.tenantId`, same purpose as writeStore's:
  * lets a background caller (e.g. a next/server after() rebuild) read the tenant it
@@ -219,35 +217,20 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
 
   if (!opts.forceRefresh && warm(name, resolved.cacheKey)) return cache.get(resolved.cacheKey) as T[];
 
-  // Mirrored stores: the durable Supabase blob wins when present (this is what makes
-  // the research caches exist on hosted prod). Missing row/table/env -> file as before.
-  let degraded = false;
+  // Mirrored stores read canonical durable truth; an unavailable cold read is never absence.
   if (SUPABASE_MIRRORED_STORES.has(name)) {
     const mirror = await readMirroredBlob(resolved.cacheKey, name);
     if (mirror.rows != null) { cache.set(resolved.cacheKey, mirror.rows); filledAt.set(resolved.cacheKey, Date.now()); return mirror.rows as T[]; }
     // A FAILED REFRESH KEEPS THE LAST KNOWN GOOD, stamping only a short retry rather than a full TTL: the rows are stale and never pretend to have been confirmed, but empty is not more true than they are.
     if (!mirror.reachable) {
       if (cache.has(resolved.cacheKey)) { filledAt.set(resolved.cacheKey, Date.now() - MIRROR_TTL_MS + MIRROR_RETRY_MS); return cache.get(resolved.cacheKey) as T[]; }
-      degraded = true; // COLD AND UNAVAILABLE: fall through to file/fallback exactly as before, but stamp only the short retry so a recovering database is asked again in seconds rather than a full TTL
+      throw new Error(`[json-store] saved ${name} is unavailable for ${resolved.cacheKey}`);
     }
   }
 
-  ensureDataDir(resolved.routedDir);
-
-  if (existsSync(resolved.routedPath)) {
-    try {
-      const raw = readFileSync(resolved.routedPath, "utf-8");
-      const data = JSON.parse(raw) as T[];
-      cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, degraded ? Date.now() - MIRROR_TTL_MS + MIRROR_RETRY_MS : Date.now());
-      return data;
-    } catch {
-      // Corrupted routed file — fall through to defaults.
-    }
-  }
-
-  // Routed file missing or corrupted — return caller's fallback (or []).
+  // Non-mirrored legacy wrappers retain process defaults; disk never supplies production truth.
   const initial = fallback ? [...fallback] : [];
-  cache.set(resolved.cacheKey, initial); filledAt.set(resolved.cacheKey, degraded ? Date.now() - MIRROR_TTL_MS + MIRROR_RETRY_MS : Date.now());
+  cache.set(resolved.cacheKey, initial); filledAt.set(resolved.cacheKey, Date.now());
   return initial as T[];
 }
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { createHash } from "node:crypto";
 import { identityCacheKey } from "./cached-call";
 import { resolveDeps } from "./default-deps";
@@ -17,7 +18,7 @@ function pageExtractKey(url: string): string {
 export async function readPublicPageExtract(url: string, deps: FunnelBoundaryDeps = {}, held?: Pick<ReturnType<typeof pageExtractFromRecord>, "title" | "h1" | "mainText" | "fetchedAt">): Promise<{ extract: Record<string, unknown>; contentHash: string; fetchedAt: string } | null> {
   const d = resolveDeps(deps);
   const row = await d.cacheRead(pageExtractKey(url)).catch(() => null);
-  if (!row || row.status !== "ready" || row.payload == null || Date.parse(row.expires_at) <= d.now().getTime()) return null;
+  if (!row || row.status !== "ready" || row.payload == null || !(Date.parse(row.expires_at) > d.now().getTime()) || PROOF_SPEND.cacheOnly() && (row.cache_key !== pageExtractKey(url) || row.endpoint !== PAGE_EXTRACT_ENDPOINT || !!row.quarantined_at || !!row.error_detail)) return null;
   const p = row.payload as { extract?: Record<string, unknown>; content_hash?: string; fetched_at?: string };
   const extract = p.extract ?? {}, original = pageExtractFromRecord(extract), date = Object.hasOwn(extract, "fetchedAt") ? original.fetchedAt : p.fetched_at, norm = (s: string | null | undefined) => (s ?? "").trim().replace(/\s+/g, " ");
   // Complete-pattern callers bind the original to their dated tenant-held capture; wrapper clocks cannot refresh it.

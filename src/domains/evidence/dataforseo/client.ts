@@ -1,5 +1,6 @@
 import "server-only";
 
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { perfCountExternal } from "@/lib/obs/perf-log";
 import type { DataForSeoEnv } from "./types";
 
@@ -65,6 +66,7 @@ export async function runDataForSeoTransport(args: {
   | { ok: false; status: number | null; message: string; body?: unknown }
 > {
   try {
+    if (PROOF_SPEND.cacheOnly()) return { ok: false, status: null, message: "The saved-only request does not authorize provider transport." };
     perfCountExternal("dataforseo", args.perfDetail);
     const auth = resolveAuthB64(args.env) ?? "";
     const method = args.method ?? "POST";

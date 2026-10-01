@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
 const STORE = "customer-surface";
-const durable = vi.hoisted(() => ({ rows: null as unknown[] | null, fail: false as boolean | string, keys: [] as string[], tables: [] as string[] }));
+const durable = vi.hoisted(() => ({ rows: null as unknown, fail: false as boolean | string, keys: [] as string[], tables: [] as string[] }));
 vi.mock("@/lib/tenant-context", async (orig) => ({ ...(await orig() as object), slugForTenantId: async (id: string) => id })); // Path resolution asks for a tenant's slug; that is not what this test is about, so it answers deterministically.
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({
@@ -12,7 +12,7 @@ vi.mock("@/lib/persistence/supabase", () => ({
         durable.keys.push(String(key)); if (durable.fail) return durable.fail === true ? { data: null, error: { message: "read timed out", code: "57014" } }
         : durable.fail === "throw" ? Promise.reject(new Error("client init failed"))
           : { data: null, error: { message: "schema cache stale", code: durable.fail } };
-        return { data: durable.rows == null ? null : { content: durable.rows }, error: null }; } }; return query;
+        return { data: durable.rows === undefined ? undefined : durable.rows === null ? null : { content: durable.rows }, error: null }; } }; return query;
     } }) }),}),}));
 /** How many times the DURABLE BLOB for this key was asked for, ignoring any other read a path resolution makes. */
 const blobReads = (tenant: string): number => durable.keys.filter((k) => k.includes(tenant)).length;
@@ -63,6 +63,12 @@ describe("a mirrored store refreshes, and a failed refresh keeps the last known 
     expect(await readStore(STORE, fallback, { tenantId: "t-four" }), "a cold key falls back, never to a neighbour's rows").toEqual(fallback);
     durable.rows = [{ release: "A" }];
     expect(await readStore(STORE, [], { tenantId: "t-three" }), "and the first tenant is untouched").toEqual([{ release: "A" }]);
-    durable.fail = "PGRST205"; // COLD AND UNAVAILABLE stays fail-closed: the fallback, never fabricated rows; and the module exports no test clock, the fake timers above being the seam.
-    expect(await readStore(STORE, [{ release: "cold" }], { tenantId: "t-five" }), "a cold error falls back").toEqual([{ release: "cold" }]);
-    expect((await import("@/lib/persistence/json-store") as Record<string, unknown>).__setStoreClock, "no public clock seam").toBeUndefined(); }); });
+    for (const [index, failure] of [true, "PGRST205", "42P01", "throw", "malformed", "undefined"].entries()) {
+      const tenantId = `cold-${index}`;
+      durable.fail = failure === "malformed" || failure === "undefined" ? false : failure;
+      durable.rows = failure === "malformed" ? {} : failure === "undefined" ? undefined : null;
+      await expect(readStore(STORE, fallback, { tenantId })).rejects.toThrow("unavailable");
+      durable.fail = false; durable.rows = [];
+      expect(await readStore(STORE, fallback, { tenantId }), "failed absence was not cached; empty durable rows are valid").toEqual([]);
+    }
+  }); });
