@@ -83,7 +83,7 @@ async function readOwnedPage(d: ResolvedDeps, tenantId: string, held: OwnedPageR
   const now = d.now(), key = canonicalUrlKey(url), kept: OwnedPageReadOutcome[] = [], seen = new Set<string>(), absolute = /^https?:\/\//i.test(url) ? url : `https://${url}`;
   const authorizedRetry = !freeOnly && PROOF_SPEND.activeFor(tenantId) === true && PROOF_SPEND.externalClosed(tenantId, { capability: "onpage_rendered_html", url: absolute }) === false;
   const due = (t: string): boolean => { const ms = Date.parse(t); return !Number.isFinite(ms) || now >= ms; };
-  for (const o of held) { const k = canonicalUrlKey(o.url); if (due(o.retryAfter) || seen.has(k) || (authorizedRetry && k === key && o.state === "temporarily_unavailable")) continue; seen.add(k); kept.push(o); }
+  for (const o of held) { const k = canonicalUrlKey(o.url); if (k === key && (due(o.retryAfter) || seen.has(k) || (authorizedRetry && o.state === "temporarily_unavailable"))) continue; seen.add(k); kept.push(o); }
   let captureProblem = false, readFailed = false, priorWords = 0, unresolvedHash: string | null = null, latestCapture: Record<string, unknown> | null = null, legacy: Partial<PageSnapshot> | null = null;
   const settled = async (captureId?: string): Promise<boolean> => {
     const misses = new Map<string, "no_capture" | "read_failed">(), rows = await d.readOwnedBodies(tenantId, [url], misses).catch(() => null), body = rows?.get(key) ?? null;

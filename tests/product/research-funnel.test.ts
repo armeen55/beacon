@@ -449,8 +449,8 @@ expect([paid, ["no.com", "h8.com", "h9.com"].map((h) => [row(h).extract, row(h).
     expect([eleventh.tried, eleventh.held.length, eleventh.held.filter((o) => o.url === U || o.url === "own.com/n1").map((o) => o.retryAfter)])
       .toEqual([["https://own.com/n1"], 11, [at(NOW + 1000 + DAY), at(NOW + 30 * DAY)]]);
     expect([(await run(full, NOW + 2000, page, "own.com/n1")).tried, (await run(full, NOW + 2000, page, U)).tried, full.peek("to", BASIS)!.ownedReads.length]).toEqual([[], [], 11]);
-    const room = await run(seeded([...day, month]), NOW + DAY + 1, page, "own.com/n1"); // a day later the nine day-holds are memory of nothing
-    expect([room.tried, room.held]).toEqual([["https://own.com/n1"], [month]]); // expired rows pruned, room made, and the month-long hold survived
+    const room = await run(seeded([...day, month]), NOW + DAY + 1, page, "own.com/n1"); // unrelated due receipts remain until their own URL is served
+    expect([room.tried, room.held]).toEqual([["https://own.com/n1"], [...day, month]]); // this target is admitted without discarding any other URL's receipt
     expect((await run(memStore(), NOW, { ok: false, reason: "fetch_failed" }, U, "tb")).tried).toEqual([ABS]); }); // another account is never held by my refusal
   it("remembers a page that did not answer for a day, spends nothing inside it, keeps the SAME date, and allows exactly ONE more attempt when it expires", async () => { const store = memStore(emptyFunnelState("to", BASIS)); const first = await run(store, NOW, { ok: false, reason: "fetch_failed" });
     expect([first.tried.length, first.held.map((o) => [o.state, o.retryAfter])]).toEqual([1, [["temporarily_unavailable", at(NOW + DAY)]]]);
