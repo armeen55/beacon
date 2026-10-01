@@ -175,7 +175,7 @@ describe("a card says why this opportunity and why these words, and never trades
 
 });
 
-describe("a ranked card explains itself without being opened", () => {
+describe("a ranked card leads with application and keeps the reasoning inspectable", () => {
   beforeEach(() => vi.clearAllMocks());
   it.each(["noop", "reject", "missing", "plain-failure"])("copies the complete publication text before a %s rich clipboard, retaining safe markup", async (mode) => { const { CopyButton, PublicationCopy, clipboardPayload } = await import("@/app/(shell)/changes/change-controls"), units = [{ kind: "heading" as const, level: 2, text: "Which items belong?" }, { kind: "paragraph" as const, text: "See the full haft-seen list for each one.", links: [{ text: "full haft-seen list", href: "https://www.own.test/haft-seen" }, { text: "each one", href: "https://www.own.test/items" }] }, { kind: "unordered_list" as const, items: ["Wash the cloth.", "Arrange the items."] }, { kind: "ordered_list" as const, items: ["Inspect the cloth."] }, { kind: "table" as const, columns: ["Item", "Purpose"], rows: [["<script>alert(1)</script>", "Read the full haft-seen list."]] }], link = { href: "/haft-seen", anchor: "full haft-seen list", pageUrl: "www.own.test/nowruz" };
     const { JSDOM } = createRequire(import.meta.url)("jsdom"), dom = new JSDOM("<div id='root'></div>"); vi.stubGlobal("window", dom.window); vi.stubGlobal("document", dom.window.document); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); const root = createRoot(dom.window.document.getElementById("root")), toast = vi.fn(), calls: string[] = []; let stored = "old SQL";
@@ -192,7 +192,7 @@ describe("a ranked card explains itself without being opened", () => {
     const html = await renderList(viewOf([proposal({ modeledOn: SHAPE })]));
     for (const s of ["Canonical tag", "changes where the page lives or whether people can find it",
       "read once and confirm before you make the change"]) expect(html, s).toContain(s);
-    expect(await renderList(viewOf([atomic()]))).not.toContain("changes where the page lives"); // nothing dangerous, no hold
+    const policy = "This is the order to work in, not a promise about size or recovered clicks.", ready = await card({ ...atomic(), whyItMatters: `${policy} ${atomic().whyItMatters}` }); expect([ready.includes("changes where the page lives"), ready.includes(atomic().whyRankedAboveNext!), ready.includes(policy), ready.includes("Why this change:"), ready.includes("How and why"), ready.includes(atomic().bundle!.components[0]!.after)]).toEqual([false, false, false, true, true, true]);
   }); });
 describe("a change detail hands over the whole investigation and the controls to act on it", () => {
   beforeEach(() => vi.clearAllMocks());

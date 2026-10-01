@@ -103,14 +103,12 @@ function beforeAfter(p: ChangeProposal): { field: string; before: string | null;
 
 /** The paragraph, split so the boilerplate is gone and the caveat stands alone. Sentence-level, so a reason
  *  that carries neither comes back exactly as it was written. */
-/** DOES THE RECEIPT ALREADY SAY THIS SENTENCE: four fifths of its content words are already in the receipt, in any order. */
-const saysAgain = (sentence: string, said: string): boolean => { const words = sentence.toLowerCase().match(/[a-z][a-z0-9'-]{3,}/g) ?? [], has = new Set(said.toLowerCase().match(/[a-z][a-z0-9'-]{3,}/g) ?? []); return words.length >= 6 && words.filter((w) => has.has(w)).length * 5 >= words.length * 4; };
 function splitReason(text: string): { body: string; caveat: string | null } {
   const parts = text.split(/\.\s+/).map((s) => (s.trim().endsWith(".") ? s.trim() : `${s.trim()}.`))
-    .filter((s) => s.length > 1 && s !== TITLE_FOOTNOTE);
+    .filter((s) => s.length > 1 && s !== TITLE_FOOTNOTE && s !== "This is the order to work in, not a promise about size or recovered clicks.");
   const caveat = parts.find((s) => s.includes(CAVEAT_MARK)) ?? null;
-  // TWO SENTENCES, because the card is read before anything is pasted and the whole argument lives on the change's own page.
-  return { body: parts.filter((s) => s !== caveat).slice(0, 2).join(" "), caveat };
+  // One purpose sentence leads the copy; the complete argument stays in How and why.
+  return { body: parts.filter((s) => s !== caveat).slice(0, 1).join(" "), caveat };
 }
 
 /** The pieces of a bundle, named the way the server names them, so a tick here is the tick it asks for again. */
@@ -149,7 +147,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const hold = review && verdict.safetyHold && !verdict.faulted ? verdict : null;
   const caveats = cardCaveats(proposal, [...verdict.caveats, ...proof.limits.filter((l) => !proposal.limitations.includes(l)),
     ...(caveat ? [caveat] : []), ...(YEAR_QUERY.test(proposal.primaryQuery) ? [YEAR_NOTE] : [])], verdict.settledPriorReceipt);
-  const worth = [proof.ranksHere, ...(body ? body.split(/(?<=[.!?])\s+/).filter((sentence) => !saysAgain(sentence, proof.ranksHere ?? "")) : [])].filter(Boolean).join(" "); /* a sentence the receipt already says in other words is not said twice (operator walk, 2026-09-16: "Only 1 page of this site links to ... today" printed back to back) */
+  const sourceAdvisories = verdict.advisories.filter(a => a.kind === "single_source").map(a => a.say);
   const waiting = operatorUiPolicy.nextStep(nextObligation(proposal));
   const placement = proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.linkMode !== "in_place" ? proposal.recommendedChange.where ?? null : null;
   const units = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.units : undefined;
@@ -267,26 +265,20 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
           </div>
         )}
 
-        {/* WHY IT IS WORTH TRYING, in the row's own figures and the row's own sentence: what was measured, then
-            up to two sentences of the reason the producer wrote. The whole argument stays on the change's page. */}
-        {worth ? (
+        {/* WHY THIS CHANGE, briefly; the full reasoning and ranking remain in How and why. */}
+        {body ? (
           <p className="text-[13px] leading-relaxed text-foreground" data-ranks-here="true">
-            <span className="font-semibold">Why this ranks here:</span> {worth}
-          </p>
-        ) : null}
-        {proposal.whyRankedAboveNext ? (
-          <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">
-            <span className="font-semibold text-foreground">Why this ranks above the next opportunity in the full backlog:</span> {proposal.whyRankedAboveNext}
+            <span className="font-semibold">Why this change:</span> {body}
           </p>
         ) : null}
 
-        {/* THE CAVEAT, ON THE CARD THAT OFFERS THE WORK. It sat behind the expander as "Evidence and limits",
-            which is where a caveat goes to be missed by the person pasting the words. */}
-        {caveats.length > 0 ? (
+
+        {/* Specific limitations stay beside the copy; the source-count advisory stays with its evidence. */}
+        {caveats.some(l => !sourceAdvisories.includes(l)) ? (
           <div className="space-y-1" data-change-caveat="true">
             <p className="text-[12px] font-semibold text-foreground">Keep in mind</p>
             <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-guess-caution="true">
-              {caveats.map((l, i) => <li key={i}>{l}</li>)}
+              {caveats.filter(l => !sourceAdvisories.includes(l)).map((l, i) => <li key={i}>{l}</li>)}
             </ul>
           </div>
         ) : null}
@@ -324,6 +316,14 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
 
         {open ? (
           <div className="space-y-3 border-t border-border pt-3">
+            <p className="text-[13px] leading-relaxed text-muted-foreground" data-full-reason="true">{proposal.whyItMatters}</p>
+            {proof.ranksHere ? <p className="text-[12px] leading-relaxed text-muted-foreground" data-ranking-evidence="true">{proof.ranksHere}</p> : null}
+            {proposal.whyRankedAboveNext ? (
+              <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">
+                <span className="font-semibold text-foreground">Why this ranks above the next opportunity in the full backlog:</span> {proposal.whyRankedAboveNext}
+              </p>
+            ) : null}
+            {sourceAdvisories.length > 0 ? <p className="text-[12px] leading-relaxed text-muted-foreground" data-source-advisory="true">{sourceAdvisories.join(" ")}</p> : null}
             {!merge && steps.length > 0 ? (
               <div className="space-y-1" data-operator-steps="true">
                 <p className="text-[12px] font-semibold text-foreground">How to make this change</p>
