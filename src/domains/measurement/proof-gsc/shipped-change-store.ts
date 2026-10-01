@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { readStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 import type { ShipmentObjective } from "../shipment-ai-outcome";
 import type { GscProofConfidence, GscProofVerdict, MeasurementState, ProofBaseline, ProofWindowResult, TreatmentSignature } from "./types";
@@ -240,7 +240,6 @@ async function readFile(): Promise<ShippedChangeRecord[]> {
   catch (err) { log.warn("shipped-change-store: file ledger read failed; treating as empty", { store: STORE, error: err instanceof Error ? err.message : String(err) }); return []; }
 }
 
-const writeFile = (records: ShippedChangeRecord[]): Promise<void> => writeStore<ShippedChangeRecord>(STORE, records);
 
 /** All shipped-change records for the ambient tenant, newest ship first. Request-cached. */
 export const loadShippedChanges = cache(loadShippedChangesUncached);
@@ -312,17 +311,9 @@ async function heldImmutables(admin: ReturnType<typeof getSupabaseAdmin>, tid: s
     return null;
   }
 }
-/** Upsert one record (by id). Durable + file mirror. The tenant is the ambient one unless a  background or repair caller, where ambient is wrong or absent, names it explicitly. */
+/** Upsert one canonical record; unavailable persistence never acknowledges a local substitute. */
 export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?: string, opts: { invalidate?: boolean } = {}): Promise<void> {
-  const tell = opts.invalidate !== false;
-  let admin;
-  try {
-    admin = getSupabaseAdmin();
-  } catch {
-    await upsertFile(record);
-    if (tell) await invalidateResultsSurfaceSafe();
-    return;
-  }
+  const tell = opts.invalidate !== false, admin = getSupabaseAdmin();
   const tid = tenantId ?? await currentTenantId();
   const row = record.implementedAt != null
     ? withHeldImmutables(await heldImmutables(admin, tid, record.id), recordToRow(tid, record))
@@ -334,20 +325,7 @@ export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?
     const lean = { ...row }; for (const c of LATE_COLUMNS) delete lean[c];
     up = await admin.from(TABLE).upsert(lean, { onConflict: "tenant_id,id" });
   }
-  if (up.error != null) {
-    if (isUndefinedTableError(up.error)) {
-      // A SHIPMENT IS DURABLE OR IT DOES NOT EXIST. The table is here and the Shipment columns are not, so this write would reach only the
-      if (record.implementedAt != null && isMissingColumnError(up.error)) {
-        throw new Error(`shipped-change-store: ${TABLE} has no Shipment columns yet, so nothing durable landed (apply the pending migration)`);
-      }
-      console.warn(`[shipped-change-store] DURABLE upsert fell back to file (apply the pending migration): ${(up.error as { code?: string }).code ?? "?"} ${(up.error as { message?: string }).message ?? String(up.error)}`);
-      await upsertFile(record);
-      if (tell) await invalidateResultsSurfaceSafe();
-      return;
-    }
-    throw new Error(`shipped-change-store: upsert failed for ${tid}: ${up.error.message ?? String(up.error)}`);
-  }
-  await mirrorFile(record);
+  if (up.error != null) throw new Error(`shipped-change-store: upsert failed for ${tid}: ${up.error.message ?? String(up.error)}`);
   if (tell) await invalidateResultsSurfaceSafe();
 }
 
@@ -368,19 +346,10 @@ export async function insertShippedChangeOnce(record: ShippedChangeRecord, tenan
     return false;
   }
   if (proposal && data === "already") return false;
-  if (!proposal) await mirrorFile(record);
   if (invalidate) await invalidateResultsSurfaceSafe();
   return true;
 }
 
-async function upsertFile(record: ShippedChangeRecord): Promise<void> {
-  const rows = await readFile(), held = rows.find((r) => r.id === record.id), next = rows.filter((r) => r.id !== record.id);
-  next.push(record.implementedAt != null && held?.implementedAt != null
-    ? { ...record, implementedAt: held.implementedAt, shipmentBaseline: held.shipmentBaseline ?? record.shipmentBaseline } : record);
-  await writeFile(next);
-}
-
-const mirrorFile = async (record: ShippedChangeRecord): Promise<void> => { try { await upsertFile(record); } catch { /* best-effort local parity */ } };
 /** THE SEAM. Live verification calls this and nothing else: the verification column and the verified_live flag it means, on ONE
  *  Shipment. The stamp and starting numbers are not in the update, so a later check can never move where the window starts; a confirmed
  *  read is kept (keepConfirmed). Fail-closed: false = nothing written, a foreign id matches no row. */
@@ -389,15 +358,12 @@ export async function recordVerification(
 ): Promise<boolean> {
   if (!tenantId || !shipmentId) return false;
   let admin;
-  // FILE MODE, exactly as the upsert falls back: local dev has no Supabase, and an answer that cannot be saved is an answer fetched again on every single visit, forever.
-  try { admin = getSupabaseAdmin(); } catch { return recordVerificationInFile(shipmentId, checked); }
+  try { admin = getSupabaseAdmin(); } catch { return false; }
   try {
     const held = await heldImmutables(admin, tenantId, shipmentId), verification = keepConfirmed(held?.verification, checked);
     const { data, error } = await admin.from(TABLE)
       .update({ verification, verified_live: liveAfter(held?.verified_live, held?.verification, verification), updated_at: new Date().toISOString() })
       .eq("tenant_id", tenantId).eq("id", shipmentId).select("id");
-    // The pre-migration window: no `verification` column to write, so the file holds the answer instead.
-    if (error != null && isUndefinedTableError(error)) return recordVerificationInFile(shipmentId, checked);
     if (error != null || !Array.isArray(data) || data.length === 0) {
       log.warn("[shipment] what the check found was not recorded: no change of yours matched that id", { tenant: tenantId, id: shipmentId, error: error?.message ?? "no row" });
       return false;
@@ -428,22 +394,6 @@ export async function recordPinnedRead(tenantId: string, shipmentId: string, pin
     return Array.isArray(data) && data.length > 0;
   } catch (err) {
     log.warn("[shipment] holding the finished reading still threw", { tenant: tenantId, id: shipmentId, error: err instanceof Error ? err.message : String(err) });
-    return false;
-  }
-}
-
-/** The same ONE column on the same ONE Shipment, written to the file the upsert already mirrors into,
- *  stamp and starting numbers untouched. False = the id is not in the file either, so it stays due. */
-async function recordVerificationInFile(shipmentId: string, checked: ShipmentVerification): Promise<boolean> {
-  try {
-    const rows = await readFile(), at = rows.findIndex((r) => r.id === shipmentId);
-    if (at < 0) return false;
-    const verification = keepConfirmed(rows[at]!.verification, checked);
-    rows[at] = { ...rows[at]!, verification, verifiedLive: liveAfter(rows[at]!.verifiedLive, rows[at]!.verification, verification), updatedAt: new Date().toISOString() };
-    await writeFile(rows); await invalidateResultsSurfaceSafe();
-    return true;
-  } catch (err) {
-    log.warn("[shipment] what the check found could not be saved to the local ledger", { id: shipmentId, error: err instanceof Error ? err.message : String(err) });
     return false;
   }
 }

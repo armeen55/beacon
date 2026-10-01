@@ -1,30 +1,12 @@
-/**
- * Supabase-backed reads and scoped in-process cache; legacy atomic file writes remain for local writers.
- * Route records use the canonical repository. Async first
- * read (cached per resolved tenant/global key), atomic temp-file+rename writes, writes serialized per
- * resolved cache key. Tenant-aware routing to `.data/tenants/{slug}/{name}.json` / `.data/global/{name}.json`
- * (Sprint 7, 2026-04-25/26): unknown stores throw fail-loud naming the classification module, never a silent
- * flat path; writes never fall back to flat. Cache keys: `${name}::tenant:${slug}` / `${name}::global`.
- */
+/** Supabase-backed scoped arrays and acknowledged writes; per-key serialization preserves write order. */
 import "server-only";
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  renameSync,
-} from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { resolveDataPath } from "./resolve-data-path";
 
-/**
- * Supabase-mirrored stores (2026-07-01): file-only writes skip disk on Vercel, so hosted prod rendered from
- * empty caches. Names here mirror to `json_store_blobs` (one jsonb blob per resolved scope key; read: row
- * wins; successful absence uses defaults; write: file then best-effort upsert).
- */
-export const SUPABASE_MIRRORED_STORES = new Set<string>([
+/** Registered durable arrays; customer releases use their atomic publisher instead. */
+const SUPABASE_MIRRORED_STORES = new Set<string>([
   // Pruned to the stores with a SURVIVING live reader/writer: a mirror registration for a
   // name nothing reads or writes is pure dead weight. Each name below is grep-verified to
   // have at least one live consumer file.
@@ -92,30 +74,14 @@ async function readMirroredBlob(scopeKey: string, storeName: string): Promise<Mi
   }
 }
 
-async function writeMirroredBlob(scopeKey: string, storeName: string, data: unknown[]): Promise<void> {
-  try {
-    const { getSupabaseAdmin } = await import("./supabase");
-    const admin = getSupabaseAdmin();
-    const { error } = await admin.from(BLOBS_TABLE).upsert(
-      { scope_key: scopeKey, store_name: storeName, content: data, updated_at: new Date().toISOString() },
-      { onConflict: "scope_key" },
-    );
-    if (error != null && !isMissingBlobsTable(error)) {
-      console.error(`[json-store] blob write failed for ${scopeKey}: ${error.message ?? String(error)}`);
-    }
-  } catch {
-    // no env -> file-only behavior (local file mode keeps working untouched)
-  }
-}
-
-/** Computed at call time (not module load) so tests can
- *  `process.chdir()` into a tmpdir and have ensureDataDir follow. */
-function ensureDataDir(dir: string): void {
-  // Vercel/serverless filesystems are read-only under process.cwd().
-  // Legacy local writers create their routed directory; hosted writers skip disk below.
-  if (process.env.VERCEL === "1") return;
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+async function writeMirroredBlob(scopeKey: string, storeName: string, content: unknown[]): Promise<void> {
+  const { getSupabaseAdmin } = await import("./supabase");
+  const { data, error } = await getSupabaseAdmin().from(BLOBS_TABLE).upsert(
+    { scope_key: scopeKey, store_name: storeName, content, updated_at: new Date().toISOString() },
+    { onConflict: "scope_key" },
+  ).select("scope_key").maybeSingle();
+  if (error != null || data?.scope_key !== scopeKey) {
+    throw new Error(`[json-store] saved ${storeName} write was not acknowledged for ${scopeKey}: ${error?.message ?? "missing or mismatched row"}`);
   }
 }
 
@@ -234,86 +200,18 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
   return initial as T[];
 }
 
-/**
- * Persist a named store to disk. Uses atomic write (temp → rename).
- * Serialized per resolved cache key so concurrent calls for the same
- * tenant+store don't corrupt; calls for different tenants run
- * concurrently because their cache keys differ.
- *
- * Writes always go to the resolved routed path; never fall back to
- * flat. Vercel skip preserved.
- *
- * P2-f (2026-07-10, visual audit) - `opts.tenantId` lets a caller that already
- * has the correct tenant in hand (e.g. a next/server after() background rebuild)
- * write there explicitly, instead of resolveDataPath falling back to the ambient
- * currentTenantSlug() (request-header-based; not guaranteed reliable outside the
- * render's request scope). Omitted -> unchanged ambient behavior.
- */
+/** Canonical writes commit before cache publication; failure preserves the last acknowledged rows. */
 export async function writeStore<T>(name: string, data: T[], opts: { tenantId?: string } = {}): Promise<void> {
   if (name === "customer-surface") {
     throw new Error("[json-store] customer-surface writes require publishCustomerRelease so ranking and content commit atomically.");
   }
-  const resolved = await resolveDataPath(name, opts.tenantId);
+  if (!SUPABASE_MIRRORED_STORES.has(name)) throw new Error(`[json-store] ${name} requires its canonical repository writer`);
+  const content = structuredClone(data), resolved = await resolveDataPath(name, opts.tenantId);
   const prev = writeLocks.get(resolved.cacheKey) ?? Promise.resolve();
   const next = prev.then(async () => {
-    await atomicWrite(resolved, data);
-    // Mirrored stores: best-effort durable copy AFTER the local write, inside the same
-    // per-key lock so blob upserts for one scope never race each other.
-    if (SUPABASE_MIRRORED_STORES.has(name)) {
-      await writeMirroredBlob(resolved.cacheKey, name, data as unknown[]);
-    }
+    await writeMirroredBlob(resolved.cacheKey, name, content);
+    cache.set(resolved.cacheKey, content); filledAt.set(resolved.cacheKey, Date.now());
   });
   writeLocks.set(resolved.cacheKey, next.catch(() => {}));
   await next;
-}
-
-async function atomicWrite<T>(
-  resolved: Awaited<ReturnType<typeof resolveDataPath>>,
-  data: T[],
-): Promise<void> {
-  // Vercel: lambda FS is read-only. Update the in-process cache only;
-  // skip disk. Supabase dual-write is called by store modules AFTER
-  // writeStore, so persistent state still lands in the DB. Stores that
-  // aren't yet dual-written no-op on hosted (matches the "expected
-  // broken" guardrail).
-  if (process.env.VERCEL === "1") {
-    cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, Date.now());
-    return;
-  }
-
-  ensureDataDir(resolved.routedDir);
-
-  // Phase 7.7b Commit 2 / 7.8b-2-b (2026-04-25): import-runs anti-race
-  // guard, now per-tenant. Refuses to overwrite a non-empty
-  // `import-runs.json` with `[]` so a startup race where the
-  // module-level cache pulls `[]` before the file is populated doesn't
-  // flush an empty array to disk. Only fires for the import-runs store
-  // (matches today's posture); the tenant-aware path means tenant A's
-  // guard inspects only tenant A's file — never blocks writes for
-  // tenant B.
-  if (
-    data.length === 0 &&
-    /(^|\/)import-runs\.json$/.test(resolved.routedPath) &&
-    existsSync(resolved.routedPath)
-  ) {
-    try {
-      const existing = JSON.parse(readFileSync(resolved.routedPath, "utf-8"));
-      if (Array.isArray(existing) && existing.length > 0) {
-        // Don't overwrite — cache the existing data instead so subsequent
-        // reads see the durable rows, not the [].
-        cache.set(resolved.cacheKey, existing); filledAt.set(resolved.cacheKey, Date.now());
-        return;
-      }
-    } catch {
-      // Corrupted file — OK to overwrite.
-    }
-  }
-
-  // Unique temp names prevent independent Node workers (test runners, CLI
-  // jobs, overlapping serverless work) from renaming one another's file.
-  const tmp = `${resolved.routedPath}.${process.pid}.${randomUUID()}.tmp`;
-  const json = JSON.stringify(data, null, 2);
-  writeFileSync(tmp, json, "utf-8");
-  renameSync(tmp, resolved.routedPath);
-  cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, Date.now());
 }

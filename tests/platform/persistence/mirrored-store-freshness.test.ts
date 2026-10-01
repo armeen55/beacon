@@ -1,74 +1,74 @@
-/** A FAILED REFRESH MAY NOT REPLACE SAVED TRUTH WITH NOTHING. A mirrored slot ages out after its TTL and the  durable read then answered `null` to both "no row" and "could not be read", so one transient Supabase  failure sent the read to a file hosted does not have, then to the caller's `[]`, which was cached and  stamped freshly read: a saved release could vanish from Today and Changes for a TTL while valid truth sat  in hand. Behavioural, on the real readStore: an injected clock ages the slot and a seam fails the read. */
+/** Canonical array custody: absence, outages, acknowledged writes and scoped concurrency. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
-const STORE = "customer-surface";
-const durable = vi.hoisted(() => ({ rows: null as unknown, fail: false as boolean | string, keys: [] as string[], tables: [] as string[] }));
-vi.mock("@/lib/tenant-context", async (orig) => ({ ...(await orig() as object), slugForTenantId: async (id: string) => id })); // Path resolution asks for a tenant's slug; that is not what this test is about, so it answers deterministically.
-vi.mock("@/lib/persistence/supabase", () => ({
-  getSupabaseAdmin: () => ({
-    from: (table: string) => ({ select: () => ({ eq: (_c: string, key: string) => {
-      durable.tables.push(table); const query = { order: () => query, limit: () => query, maybeSingle: async () => {
-        if (!String(key).startsWith(STORE)) return { data: null, error: null }; // ONLY the store under test answers here; every other key a path resolution touches reads as "no row", so this fixture cannot accidentally reshape where the store resolves to.
-        durable.keys.push(String(key)); if (durable.fail) return durable.fail === true ? { data: null, error: { message: "read timed out", code: "57014" } }
-        : durable.fail === "throw" ? Promise.reject(new Error("client init failed"))
-          : { data: null, error: { message: "schema cache stale", code: durable.fail } };
-        return { data: durable.rows === undefined ? undefined : durable.rows === null ? null : { content: durable.rows }, error: null }; } }; return query;
-    } }) }),}),}));
-/** How many times the DURABLE BLOB for this key was asked for, ignoring any other read a path resolution makes. */
-const blobReads = (tenant: string): number => durable.keys.filter((k) => k.includes(tenant)).length;
+const STORE = "customer-surface", WRITE = "results-surface";
+type Write = { scope_key: string; content: unknown[] };
+const durable = vi.hoisted(() => ({ rows: null as unknown, fail: false as boolean | string, keys: [] as string[], tables: [] as string[], writer: vi.fn<(row: Write) => Promise<{ data: unknown; error: unknown }>>() }));
+vi.mock("@/lib/tenant-context", async (orig) => ({ ...(await orig() as object), slugForTenantId: async (id: string) => id }));
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ from: (table: string) => ({
+  upsert: (row: Write) => ({ select: () => ({ maybeSingle: () => durable.writer(row) }) }),
+  select: () => ({ eq: (_c: string, key: string) => {
+    durable.tables.push(table); const query = { order: () => query, limit: () => query, maybeSingle: async () => {
+      if (!key.startsWith(STORE) && !key.startsWith(WRITE)) return { data: null, error: null };
+      durable.keys.push(key);
+      if (durable.fail === "throw") throw new Error("client init failed");
+      if (durable.fail) return { data: null, error: { message: "read unavailable", code: durable.fail === true ? "57014" : durable.fail } };
+      return { data: durable.rows === undefined ? undefined : durable.rows === null ? null : { content: durable.rows }, error: null };
+    } }; return query;
+  } }),
+}) }) }));
 import { readStore, writeStore } from "@/lib/persistence/json-store";
-
-let clock = 1_000_000;
-beforeEach(() => { clock = 1_000_000; vi.useFakeTimers(); vi.setSystemTime(clock); durable.rows = null; durable.fail = false; durable.keys = []; durable.tables = []; });
-afterEach(() => { vi.useRealTimers(); });
-const age = (ms: number) => { clock += ms; vi.setSystemTime(clock); };
-
-describe("a mirrored store refreshes, and a failed refresh keeps the last known good", () => {
-  it("cannot bypass the atomic release publisher through the generic writer", async () => {
-    await expect(writeStore(STORE, [{ release: "unranked" }], { tenantId: "t-one" })).rejects.toThrow("publishCustomerRelease");
+const blobReads = (tenant: string) => durable.keys.filter(k => k.includes(tenant)).length;
+const read = (tenantId: string, name = STORE, fallback: unknown[] = []) => readStore(name, fallback, { tenantId });
+const write = (tenantId: string, content: unknown[]) => writeStore(WRITE, content, { tenantId });
+beforeEach(() => {
+  vi.useFakeTimers(); vi.setSystemTime(1_000_000); durable.rows = null; durable.fail = false; durable.keys = []; durable.tables = [];
+  durable.writer.mockReset().mockImplementation(async row => ({ data: { scope_key: row.scope_key }, error: null }));
+});
+afterEach(() => vi.useRealTimers());
+const age = (ms: number) => vi.setSystemTime(Date.now() + ms);
+describe("canonical saved array custody", () => {
+  it("requires the atomic customer publisher and rejects obsolete fallback writers", async () => {
+    await expect(writeStore(STORE, [], { tenantId: "t-one" })).rejects.toThrow("publishCustomerRelease");
+    await expect(writeStore("shipped-changes", [], { tenantId: "t-one" })).rejects.toThrow("canonical repository");
+    expect(durable.writer).not.toHaveBeenCalled();
   });
-  it("holds row A through an outage, retries in a bounded way, and takes row B when the durable read returns", async () => {
-    const A = [{ release: "A" }], B = [{ release: "B" }];
-    durable.rows = A;
-    expect(await readStore(STORE, [], { tenantId: "t-one" }), "the saved release is read and cached").toEqual(A);
+  it("keeps warm truth through bounded outage retries and takes the recovered release", async () => {
+    const A = [{ release: "A" }], B = [{ release: "B" }]; durable.rows = A;
+    expect(await read("warm")).toEqual(A);
     expect([durable.tables.includes("customer_surface_releases"), durable.tables.includes("json_store_blobs")]).toEqual([true, false]);
-    const first = blobReads("t-one");
-    expect(first, "the durable blob was asked for once").toBe(1);
-
-    expect(await readStore(STORE, [], { tenantId: "t-one" })).toEqual(A);
-    expect(blobReads("t-one"), "a warm slot asks the durable store nothing").toBe(first);
-
-    age(31_000); durable.fail = true; // The slot ages out and the durable read FAILS: the previous truth stands, and [] never becomes the answer.
-    expect(await readStore(STORE, [], { tenantId: "t-one" }), "a failed refresh keeps the last known good").toEqual(A);
-    const afterOutage = blobReads("t-one");
-    expect(afterOutage, "and it did try").toBe(first + 1);
-
-    age(1_000);
-    expect(await readStore(STORE, [], { tenantId: "t-one" })).toEqual(A);
-    expect(blobReads("t-one"), "the failure is not retried on every read").toBe(afterOutage);
-
-    age(6_000);
-    expect(await readStore(STORE, [], { tenantId: "t-one" })).toEqual(A);
-    expect(blobReads("t-one"), "but it does try again").toBe(afterOutage + 1);
-
-    age(31_000); durable.fail = false; durable.rows = B; // The durable store comes back with newer rows: the stale copy is replaced.
-    expect(await readStore(STORE, [], { tenantId: "t-one" }), "a successful refresh replaces the stale rows").toEqual(B);
-    expect(await readStore(STORE, [], { tenantId: "t-one" })).toEqual(B); });
-
-  it("never hands one tenant another tenant's rows, and a cold missing store still gets its fallback", async () => {
-    durable.rows = [{ release: "A" }];
-    expect(await readStore(STORE, [], { tenantId: "t-three" })).toEqual([{ release: "A" }]);
-    durable.rows = null; // the durable store has no row for this other tenant, and the read SUCCEEDS
-    const fallback = [{ release: "mine" }];
-    expect(await readStore(STORE, fallback, { tenantId: "t-four" }), "a cold key falls back, never to a neighbour's rows").toEqual(fallback);
-    durable.rows = [{ release: "A" }];
-    expect(await readStore(STORE, [], { tenantId: "t-three" }), "and the first tenant is untouched").toEqual([{ release: "A" }]);
-    for (const [index, failure] of [true, "PGRST205", "42P01", "throw", "malformed", "undefined"].entries()) {
-      const tenantId = `cold-${index}`;
+    for (const [elapsed, failing, rows, reads] of [[0, false, A, 1], [31000, true, A, 2], [1000, true, A, 2], [6000, true, A, 3], [31000, false, B, 4]] as const) {
+      age(elapsed); durable.fail = failing; durable.rows = rows;
+      expect(await read("warm")).toEqual(failing ? A : rows); expect(blobReads("warm")).toBe(reads);
+    }
+  });
+  it("isolates tenants and never caches cold database failure as absence", async () => {
+    durable.rows = [{ release: "A" }]; expect(await read("owner")).toEqual(durable.rows);
+    durable.rows = null; const fallback = [{ release: "mine" }]; expect(await read("other", STORE, fallback)).toEqual(fallback);
+    expect(await read("owner")).toEqual([{ release: "A" }]);
+    for (const [i, failure] of [true, "PGRST205", "42P01", "throw", "malformed", "undefined"].entries()) {
       durable.fail = failure === "malformed" || failure === "undefined" ? false : failure;
       durable.rows = failure === "malformed" ? {} : failure === "undefined" ? undefined : null;
-      await expect(readStore(STORE, fallback, { tenantId })).rejects.toThrow("unavailable");
-      durable.fail = false; durable.rows = [];
-      expect(await readStore(STORE, fallback, { tenantId }), "failed absence was not cached; empty durable rows are valid").toEqual([]);
+      await expect(read(`cold-${i}`, STORE, fallback)).rejects.toThrow("unavailable");
+      durable.fail = false; durable.rows = []; expect(await read(`cold-${i}`, STORE, fallback)).toEqual([]);
     }
-  }); });
+  });
+  it("retains acknowledged rows on missing, foreign, failed and lost write responses, then recovers", async () => {
+    await write("writes", ["A"]);
+    for (const result of [{ data: null, error: null }, { data: { scope_key: "foreign" }, error: null }, { data: null, error: { message: "unavailable" } }, new Error("lost response")]) {
+      durable.writer.mockImplementationOnce(async () => { if (result instanceof Error) throw result; return result; });
+      await expect(write("writes", ["B"])).rejects.toThrow(); expect(await read("writes", WRITE)).toEqual(["A"]);
+    }
+    await write("writes", ["C"]); expect(await read("writes", WRITE)).toEqual(["C"]);
+  });
+  it("serializes one scope without blocking another, binding the submitted content before acknowledgement", async () => {
+    await write("serial", ["A"]); let release!: () => void, entered!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+    durable.writer.mockImplementation(async row => { if (row.content[0] === "B") { entered(); await held; } return { data: { scope_key: row.scope_key }, error: null }; });
+    const B = ["B"], first = write("serial", B); B[0] = "mutated"; await started; const second = write("serial", ["C"]);
+    await write("neighbour", ["D"]); expect(await read("serial", WRITE)).toEqual(["A"]); expect(await read("neighbour", WRITE)).toEqual(["D"]);
+    expect(durable.writer.mock.calls.map(([row]) => row.content[0])).toEqual(["A", "B", "D"]);
+    release(); await Promise.all([first, second]); expect(await read("serial", WRITE)).toEqual(["C"]);
+    expect(durable.writer.mock.calls.map(([row]) => row.content[0])).toEqual(["A", "B", "D", "C"]);
+  });
+});

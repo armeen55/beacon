@@ -4,8 +4,7 @@ const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
 const ai = vi.hoisted(() => ({ views: vi.fn(), records: vi.fn() }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; } }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "acct-a" }));
-vi.mock("@/lib/persistence/json-store", () => ({ readStore: async () => db.state.file, writeStore: async (_store: string, rows: Row[]) => { db.state.file = rows; } }));
-vi.mock("@/lib/tenant", () => ({ getDataDir: () => "/tmp/beacon-fixture" }));
+vi.mock("@/lib/persistence/json-store", () => ({ readStore: async () => db.state.file }));
 vi.mock("@/domains/account/tenants/store", () => ({ getTenant: async () => null }));
 const invalidations = vi.hoisted(() => ({ n: 0 }));
 vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => { invalidations.n += 1; } }));
@@ -151,19 +150,20 @@ it("replaces a contract-4 confirmation when the current structural read disagree
   const record = await ship(); await upsertShippedChange({ ...record, verifiedLive: true, verification: { ...verification("verified"), checkerContract: 4 } });
   await recordVerification(T, record.id, { ...verification("differs"), reason: "not_published_yet" }); const after = (await loadShippedChangesForTenant(T))[0]!;
   expect([after.verification?.checkerContract, after.verification?.status, after.verifiedLive, after.implementedAt]).toEqual([SHIPMENT_PROOF.contract, "differs", false, NOW.toISOString()]); });
-describe("when the Shipment columns are not there yet", () => {
-  const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
-  it("refuses a Shipment it cannot store durably, but still files a pre-Shipment row nothing reads from the table", async () => {
-    db.state.upsertError = MISSING_COLUMN; await expect(upsertShippedChange(await ship())).rejects.toThrow(/migration/i); expect([db.state.rows.length, db.state.file.length]).toEqual([0, 0]);
-    await upsertShippedChange(await ship({ shipment: undefined })); expect(db.state.file).toHaveLength(1);});
-  it("keeps working with no database at all: the record and its answer both land in the local ledger", async () => {
-    db.state.offline = true; const record = await ship(); await upsertShippedChange(record); expect(db.state.file).toHaveLength(1);
-    expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
-    expect(await recordVerification(T, "shp_nobody-holds-this", verification("verified"))).toBe(false);});
-  it("saves what the check found to the file when the column is missing, rather than re-owing the check forever", async () => {
-    const record = await ship(); await upsertShippedChange(record); // the table takes the row, and the file mirrors it
-    db.state.updateError = { code: "PGRST204", message: "Could not find the 'verification' column of 'shipped_change_proof' in the schema cache" };
-    expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");});});
+describe("when canonical Shipment persistence is unavailable", () => {
+  it.each(["PGRST204", "42P01", "57014"])("refuses %s without writing a substitute ledger", async code => {
+    db.state.upsertError = { code, message: "canonical write unavailable" };
+    await expect(upsertShippedChange(await ship())).rejects.toThrow("upsert failed");
+    expect([db.state.rows.length, db.state.file.length]).toEqual([0, 0]); });
+  it("refuses offline recording and verification without pretending they landed", async () => {
+    db.state.offline = true; const record = await ship(); await expect(upsertShippedChange(record)).rejects.toThrow("no Supabase");
+    expect(await recordVerification(T, record.id, verification("verified"))).toBe(false);
+    expect([db.state.rows.length, db.state.file.length]).toEqual([0, 0]); });
+  it("preserves the canonical record when a verification write fails, then recovers", async () => {
+    const record = await ship(); await upsertShippedChange(record); const before = structuredClone(db.state.rows);
+    db.state.updateError = { code: "PGRST204", message: "verification column unavailable" };
+    expect(await recordVerification(T, record.id, verification("verified"))).toBe(false); expect(db.state.rows).toEqual(before);
+    db.state.updateError = null; expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); expect(db.state.file).toEqual([]); }); });
 describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
