@@ -26,12 +26,11 @@ import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { resolveCurrentBasis } from "@/domains/decision/load-proposals";
 import {
-  advance as advanceWorld, clock, fixture, installFetch, logs, meter, now, reasoningAsked, requestsOf, reset, runRepo, runs, script, seedOwnedPages, spentOn,
+  advance, clock, fixture, installFetch, logs, meter, now, reasoningAsked, requestsOf, reset, runRepo, runs, script, seedOwnedPages, spentOn,
   seedProposals, seedResearchState, seedRun, seedSearchHistory, reasoningReply, table, T, SITE,
   type FixtureSerp, type FixtureWinner, type Row, type RunRow,
 } from "./world";
 
-const advance = (ms: number): number => { const at = advanceWorld(ms); vi.setSystemTime(at); return at; };
 
 const HUB = "/famous-iranians", QUERY = "famous iranians", FORUM = "reddit.com";
 const serpFor = (q: string): FixtureSerp[] => fixture<FixtureSerp[]>("serps.json").filter((s) => s.query === q);
@@ -77,7 +76,6 @@ const serpsOf = (): FixtureSerp[] => ((table("research_state")[0]?.state as { se
 let basis = "";
 beforeEach(async () => {
   reset(); installFetch();
-  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(clock.ms);
   vi.stubEnv("DATAFORSEO_AUTH_B64", "harness-not-a-key");
   vi.stubEnv("OPENAI_API_KEY", "harness-not-a-key");
   vi.stubEnv("DATA_SOURCE", "supabase");
@@ -331,7 +329,7 @@ describe("three opportunities waiting on their own results page", () => {
     expect([...(await loadChangeProposals(T)).values()].filter((r) => (r.pagePath ?? "") === HUB).map((r) => r.status),
       "so the copy the hub row was waiting for reaches the store on that drive, where the eleven purchases in front of the walk used to take its turn").toEqual(["ready"]);
   });
-  it("keeps free winner reading after a zero-output paid walk without buying another writer or page provider", async () => { const midday = new Date(now()); midday.setUTCHours(18, 0, 0, 0); if (midday.getTime() <= clock.ms) midday.setUTCDate(midday.getUTCDate() + 1); advance(midday.getTime() - clock.ms);
+  it("keeps free winner reading after a zero-output paid walk without buying another writer or page provider", async () => {
     const OTHERS = PAGES.slice(1); seedSearchHistory(OTHERS.map((p) => ({ path: p.path, query: p.query }))); await seedSiblings(OTHERS); seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { ready: false, posted: [] as string[] }; script.search = threeTasks(state); const owed = PAGES.map((p, i) => owedSerp(p, [58, 63, 66][i]!)); const first = await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owed }); const dfs = spentOn("dataforseo"), reasoner = script.reasoning!, pageRead = script.page!; logs.length = 0; script.reasoning = (body) => (logs.push(`reasoning-request:${(body as { text?: { format?: { name?: string } } }).text?.format?.name}`), reasoner(body)); script.page = (url) => (url.includes("ref1.example") && logs.push("winner-fetch"), pageRead(url));
     state.ready = true; advance(30 * 60_000); const stopped = { day: first.cycle_key.slice(-10), lanes: { walk: String((await dueWork(T, now())).evidenceVersion ?? "") } }, open = runs.find((r) => r.status !== "completed"); if (open) open.progress = { ...open.progress, zeroOutput: stopped }; await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: owedAfter(first, owed), zeroOutput: stopped });

@@ -117,7 +117,7 @@ const writeLocks = new Map<string, Promise<void>>();
  *  an EXPIRED hold, and everything else is refused. The winner gets an owner token; releaseScope lands only
  *  while that exact token still holds, so a holder that outlived its TTL frees nothing on its way out.
  *  FAIL-CLOSED in every hosted failure mode (a broken instance must not hand the hold to everybody at once);
- *  only explicitly local file mode, and the vitest hermetic case, grant without a database. */
+ *  only the explicitly hermetic vitest case grants without a database. */
 export async function claimScope(name: string, key: string, ttlSeconds: number): Promise<string | null> {
   const scopeKey = `${name}::${key}`;
   // THE CLAIM IS OWNED, not just timed. A release keyed on the scope alone let a holder that outlived its TTL
@@ -128,10 +128,7 @@ export async function claimScope(name: string, key: string, ttlSeconds: number):
   // process with nothing to race, so the claim is granted rather than refusing every unmocked fixture. A
   // test that pins the hosted fail-closed behaviour sets DATA_SOURCE, exactly as those tests already do.
   if (process.env.VITEST && !process.env.DATA_SOURCE && !process.env.NEXT_PUBLIC_SUPABASE_URL) return owner;
-  // THE ONE STATE THAT MAY GRANT WITHOUT A DATABASE: file mode, and not on the hosted platform.
-  const localFileMode = process.env.DATA_SOURCE === "file" && process.env.VERCEL !== "1";
   const refuse = (why: string): string | null => {
-    if (localFileMode) return owner;
     console.error(`[json-store] claim refused for ${scopeKey}: ${why}`);
     return null; // nobody won, which is always safer than everybody winning
   };

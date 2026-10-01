@@ -38,7 +38,7 @@ vi.mock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof imp
 const blob = vi.hoisted(() => ({ stored: null as unknown, writeFails: false }));
 vi.mock("@/lib/persistence/json-store", async () => ({ ...(await vi.importActual<typeof import("@/lib/persistence/json-store")>("@/lib/persistence/json-store")),
   readStore: async (name: string) => (name === "customer-surface" && blob.stored ? [blob.stored] : []),
-  writeStore: async () => { if (blob.writeFails) throw new Error("the release blob did not land"); } }));
+  writeStore: vi.fn(async () => { if (blob.writeFails) throw new Error("the release blob did not land"); }) }));
 const ledgerFails = vi.hoisted(() => ({ value: false, hangs: false, rows: [] as unknown[] }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadProofLedgerCached: async () => { if (ledgerFails.value) throw new Error("the ledger did not read"); if (ledgerFails.hangs) return new Promise<never>(() => {}); return ledgerFails.rows; } }));
@@ -185,11 +185,11 @@ describe("the ranked queue pages in the database", () => {
     expect(after.cursor).toBeGreaterThan(after.rows.length); // the cursor is the RANK read, not a row count
   });
 });
-describe("a publish that half landed", () => {
-  it("rolls the order back onto the release still serving when the blob does not land", async () => {
+describe("a rebuild without a database lease", () => {
+  it("keeps the saved release and queue order when no instance owns the rebuild", async () => {
     const real = await vi.importActual<typeof import("@/app/(shell)/surface-release")>("@/app/(shell)/surface-release"); await stamp("rel-prev", ALL.slice(0, 3).map((p) => ({ id: p.id, lane: "ready" })));
     blob.stored = { schemaVersion: 2, releaseId: "rel-prev", computedAt: "2026-08-03T00:00:00.000Z", tenantId: T,
       changes: { surfaceVersion: "rel-prev", ready: ALL.slice(0, 3), toDo: [] }, today: {} };
-    blob.writeFails = true;
-    await expect(real.refreshCustomerSurface(T)).rejects.toThrow(); const page = await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE);
-    expect([page.release, page.rows.map((p) => p.id)]).toEqual(["rel-prev", ALL.slice(0, 3).map((p) => p.id)]); });});
+    blob.writeFails = true; const prior = structuredClone(blob.stored), writer = vi.mocked((await import("@/lib/persistence/json-store")).writeStore); writer.mockClear();
+    await expect(real.refreshCustomerSurface(T)).resolves.toEqual(prior); const page = await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE);
+    expect([page.release, page.rows.map((p) => p.id), writer.mock.calls.length]).toEqual(["rel-prev", ALL.slice(0, 3).map((p) => p.id), 0]); });});

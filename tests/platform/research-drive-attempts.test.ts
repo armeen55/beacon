@@ -253,13 +253,13 @@ describe("the source escape the keys are joined on", () => {
       .toEqual([false, `alpha${NUL}beta`]);
   });
 
-  it.each(SITES)("$t: two readings whose parts differ only by where the escape sits are still two ledger entries", async (s) => {
+  it.each(SITES.flatMap(s => [false, true].map(sameCase => ({ ...s, sameCase }))))("$t/$sameCase: distinct reading tasks keep separate ledger entries", async (s) => {
     const a: Owed = { key: `${s.url}::a`, kind: "serp", query: "alpha", rank: 1, reasonCode: "no_serp", reason: "owed", workKey: `beta${NUL}w` };
-    const b: Owed = { key: `${s.url}::b`, kind: "serp", query: `alpha${NUL}beta`, rank: 2, reasonCode: "no_serp", reason: "owed", workKey: "w" };
+    const b: Owed = { key: s.sameCase ? a.key : `${s.url}::b`, kind: "serp", query: `alpha${NUL}beta`, rank: 2, reasonCode: "no_serp", reason: "owed", workKey: "w" };
     const one = await oneDrive(s, [a, b], [a, b]);
     expect(one.owed.map((n) => `${n.key}=${n.tried?.work ?? "-"}`),
-      "MEASURED, not endorsed: the escape narrows the ambiguity `::` had, it does not close it. Where either half carries U+0000 the two readings are still ONE ledger entry and the first row's stamp names the second row's identity. B12's own labelled claim is that no live string can carry it")
-      .toEqual([`${s.url}::a=w`, `${s.url}::b=w`]);
+      "Each task retains its own funding stamp even when a query or work identity contains the internal separator.")
+      .toEqual([`${a.key}=beta${NUL}w`, `${b.key}=w`]);
   });
 });
 

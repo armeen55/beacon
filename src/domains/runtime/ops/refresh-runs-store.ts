@@ -11,22 +11,16 @@ import "server-only";
  * That is what closed three probe findings at once: manual and on-use pulls leave a row, a per-source failure is named instead of
  * hidden behind a run-level ok:true, and a source that wrote zero rows while claiming success reads as partial ("no new data").
  *
- * Mirrors cron-runs-store.ts EXACTLY. Service-role admin client, and getSupabaseAdmin() throwing (no env, local dev) routes straight
- * to the file mirror; PGRST205 / 42P01 / PGRST204 (table not migrated in yet) route there too, so deploy order (code before
- * migration) can never break the sync this ledger observes. Fail-soft by contract: recordRefreshRun NEVER throws, because a ledger
- * write failure must never fail the sync or refresh it is trying to record.
+ * Writes use the canonical service-role database client. Fail-soft by contract: recordRefreshRun NEVER throws;
+ * a ledger failure is reported without claiming persistence or failing the source refresh it observes.
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { readStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 
 const TABLE = "refresh_runs";
 const STORE = "refresh-runs";
-
-/** How many rows the file-fallback mirror keeps per tenant (bounded so a
- *  pre-migration window can't grow the file forever). */
-const MAX_FILE_ROWS_PER_TENANT = 400;
 
 /** The read sources a refresh can pull. */
 export type RefreshSource = "gsc" | "ga4" | "clarity";
@@ -227,24 +221,6 @@ async function readFile(): Promise<FileRow[]> {
   }
 }
 
-async function writeFileRow(row: FileRow): Promise<void> {
-  try {
-    const rows = await readFile();
-    const sameTenant = rows.filter((r) => r.tenant_id === row.tenant_id);
-    const others = rows.filter((r) => r.tenant_id !== row.tenant_id);
-    const nextForTenant = [...sameTenant, row]
-      .sort((a, b) => b.started_at.localeCompare(a.started_at))
-      .slice(0, MAX_FILE_ROWS_PER_TENANT);
-    await writeStore(STORE, [...others, ...nextForTenant]);
-  } catch (e) {
-    log.warn("[refresh-runs-store] file mirror write failed", {
-      tenantId: row.tenant_id,
-      source: row.source,
-      error: e instanceof Error ? e.message : String(e),
-    });
-  }
-}
-
 /**
  * Record one source refresh. FAIL-SOFT BY CONTRACT: never throws. A ledger
  * write failure (bad env, missing table pre-migration, a Supabase outage) must
@@ -261,8 +237,8 @@ export async function recordRefreshRun(input: RefreshRunInput): Promise<void> {
   let admin;
   try {
     admin = getSupabaseAdmin();
-  } catch {
-    await writeFileRow(row); // no Supabase env (e.g. local dev) -> file only
+  } catch (e) {
+    log.warn("[refresh-runs-store] database unavailable", { tenantId: row.tenant_id, source: row.source, error: e instanceof Error ? e.message : String(e) });
     return;
   }
 
@@ -281,21 +257,11 @@ export async function recordRefreshRun(input: RefreshRunInput): Promise<void> {
       next_retry_at: row.next_retry_at,
     });
     if (error != null) {
-      if (isMissingTable(error)) {
-        console.warn(
-          `[refresh-runs-store] table not migrated yet, falling back to file (apply migrations/2026-07-11_refresh_runs.sql): ${
-            (error as { code?: string }).code ?? "?"
-          } ${(error as { message?: string }).message ?? String(error)}`,
-        );
-        await writeFileRow(row);
-        return;
-      }
       log.warn("[refresh-runs-store] insert failed", {
         tenantId: row.tenant_id,
         source: row.source,
         error: error.message ?? String(error),
       });
-      await writeFileRow(row);
       return;
     }
   } catch (e) {
@@ -304,7 +270,6 @@ export async function recordRefreshRun(input: RefreshRunInput): Promise<void> {
       source: row.source,
       error: e instanceof Error ? e.message : String(e),
     });
-    await writeFileRow(row);
   }
 }
 

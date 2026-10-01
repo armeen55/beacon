@@ -1,5 +1,5 @@
 /** In-memory account, clock and scripted transport around real production phases/stores. Fixtures replace account identity; scripted model approvals do not prove live copy quality. */
-import { readFileSync } from "node:fs"; import { sourceFactsRpc, sourceInsert } from "../helpers/supabase-fake";
+import { vi } from "vitest"; import { readFileSync } from "node:fs"; import { sourceFactsRpc, sourceInsert } from "../helpers/supabase-fake";
 import { join } from "node:path"; import { isDeepStrictEqual } from "node:util"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 import { reportingDay } from "@/lib/reporting-day";
 export type Row = Record<string, unknown>;
@@ -11,7 +11,7 @@ export type FixtureSerp = { query: string; status: string; source: string; cache
 export type FixtureWinner = { url: string; domain: string; appearances?: { query?: string }[]; extract?: { mainText?: string | null; truncated?: boolean | null } | null; readOutcome?: { state?: string; retryAfter?: string } | null };
 export const clock = { ms: Date.now() };
 export const now = (): Date => new Date(clock.ms);
-export const advance = (ms: number): number => (clock.ms += ms);
+export const advance = (ms: number): number => (clock.ms += ms, vi.setSystemTime(clock.ms), clock.ms);
 export const today = (): string => reportingDay(clock.ms);
 /** Scripted transport attempts and reservations, not real provider spending. */
 export const meter = { requests: [] as { kind: "search" | "reasoning" | "page"; url: string; at: number }[], paidUsd: 0, reserved: [] as number[], /** Every answer served from the store without a request, by the endpoint it belongs to. */ hits: [] as string[], /** The status this script answered each search request with. */ answered: [] as string[] };
@@ -234,7 +234,7 @@ export type Script = {
 export const script: Script = {};
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 /** One provider's answer taking its scripted time: the clock moves first, so a step asking the time mid-call reads the call as already spent, then the wait is real. */
-const took = async (kind: "search" | "reasoning" | "page"): Promise<void> => { const ms = script.latency?.[kind] ?? 0; if (ms > 0) { clock.ms += ms; await sleep(ms); } };
+const took = async (kind: "search" | "reasoning" | "page"): Promise<void> => { const ms = script.latency?.[kind] ?? 0; if (ms > 0) { advance(ms); await sleep(ms); } };
 
 export function installFetch(): void {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -442,7 +442,7 @@ export function reset(): void {
   tables.clear(); rpcSeen.length = 0; runs.length = 0; logs.length = 0; reasoningAsked.length = 0;
   meter.requests.length = 0; meter.paidUsd = 0; meter.reserved.length = 0; meter.hits.length = 0; meter.answered.length = 0;
   money.cap = 5; planned.next = null;
-  clock.ms = Date.now();
+  vi.useFakeTimers({ toFake: ["Date"] }); clock.ms = Date.parse("2026-10-01T18:00:00Z"); vi.setSystemTime(clock.ms);
   script.search = undefined; script.reasoning = undefined; script.page = undefined; script.latency = undefined;
   table("tenants").push({ id: T, slug: T, domain: SITE, status: "active", research_paused: false, growth_goal: "balanced", daily_budget_usd: 50, business_name: "Fixture Account", signup_date: "2026-01-01", tos_accepted_at: "2026-01-01T00:00:00.000Z", created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" });
   table("business_config").push(profileRow());

@@ -236,13 +236,13 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
     expect(await hosted(table({ code: "57014", message: "canceling statement due to statement timeout" }))).toBeNull();});
   it("refuses when the answer is not something it can read", async () => {
     expect(await hosted(() => ({ from: () => ({ insert: () => ({ select: async () => ({ data: null, error: null }) }) }) }))).toBeNull();});
-  it("still grants in explicitly local file mode, where there is one process and nothing to race", async () => {
+  it("refuses a database failure even with the retired local file setting", async () => {
     vi.resetModules();
-    const prior = process.env.DATA_SOURCE;
+    const prior = { source: process.env.DATA_SOURCE, vercel: process.env.VERCEL };
     process.env.DATA_SOURCE = "file"; delete process.env.VERCEL;
     vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { throw new Error("no env"); } }));
-    const { claimScope } = await import("@/lib/persistence/json-store"); expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
-    process.env.DATA_SOURCE = prior ?? "";
+    const { claimScope } = await import("@/lib/persistence/json-store"); expect(await claimScope("surface-claims", "tenant-fx", 300)).toBeNull();
+    process.env.DATA_SOURCE = prior.source ?? ""; if (prior.vercel != null) process.env.VERCEL = prior.vercel;
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();});});
 describe("pressing Pause closes the doors on the very next paid call", () => {
   const withRealPausePath = async (fn: (mod: typeof import("@/lib/spend-scope")) => Promise<void>, reads: { paused: () => boolean; count?: { n: number } }) => {

@@ -1,5 +1,5 @@
 /** Failure branches exercise the real runResearchCycle and defaultSteps against saved rows and provider faults. */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { publicationDraft } from "../helpers/publication-draft";
 vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
 vi.mock("@/lib/persistence/supabase", async () => { const w = await import("./world"); const c = w.client(); return { getSupabaseAdmin: () => c, isSupabaseConfigured: () => true }; });
@@ -24,7 +24,7 @@ const pageScript = (url: string) => (url.endsWith("/robots.txt") ? { html: "User
 const healthySearch = (state: { posts: number }) => (path: string, _payload?: unknown) => {
   if (path.endsWith("task_post")) { state.posts += 1; return { body: { status_code: 20000, tasks: [{ id: "task-1", status_code: 20100, status_message: "Task Created.", cost: 0.0006 }] } }; }
   if (path.includes("task_get")) return { body: { status_code: 20000, cost: 0, tasks: [{ id: "task-1", status_code: 20000, status_message: "Ok.",
-    result: [{ keyword: QUERY, items: [
+    result: [{ keyword: QUERY, datetime: now().toISOString(), items: [
       { type: "organic", rank_absolute: 1, domain: "en.wikipedia.org", url: "https://en.wikipedia.org/wiki/List_of_Iranians", title: "List of Iranians" },
       { type: "organic", rank_absolute: 2, domain: "history.example", url: "https://history.example/famous-iranians", title: "Famous Iranians Through History" },
       { type: "organic", rank_absolute: 3, domain: "culture.example", url: "https://culture.example/people-from-iran", title: "People From Iran" },
@@ -60,16 +60,16 @@ beforeEach(async () => {
   await seedOwnedPages([{ path: HUB, title: "Most Famous Iranians and Persians of All Time", h1: "Famous and Influential Iranian People",
     meta: "Explore the most famous Iranians and Persians in history.", h2: ["Famous Iranian Poets", "Famous Iranian Athletes"],
     body: ["Iran has produced writers, athletes and performers whose work travelled far beyond its borders.", "The poets section lists three poets with a short line on each.", "The athletes section lists wrestlers who won world titles.", "Each entry gives a name, a period and one sentence about why the person is remembered."].join("\n") }]);
-});
+}); afterEach(() => vi.useRealTimers());
 describe("an answer already on file against a real paid request", () => {
   it("the search bought once is served from what is on file afterwards, and the second row pays nothing for it", async () => {
     seedResearchState(basis, { serps: [], winningPages: [] });
     const state = { posts: 0 }; script.search = healthySearch(state);
     await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });
-    const posts = state.posts, asked = requestsOf("search"), hits = meter.hits.length;
+    const posts = state.posts, hits = meter.hits.length;
     expect([posts > 0, meter.paidUsd > 0, hits], "the first drive genuinely bought the reading, and nothing was served from the store").toEqual([true, true, 0]);
 
-    advance(60 * 1000);
+    advance(120 * 1000);
     await drive(["replenish_ready"], "keyword_discovery", { evidenceOwed: [need()] });  // the free collect finishes the posted task
     const lastCollect = clock.ms, paidAfterCollect = meter.paidUsd;
     advance(60 * 1000);
@@ -80,7 +80,7 @@ describe("an answer already on file against a real paid request", () => {
     expect(meter.requests.filter((q) => q.kind === "search" && q.at > lastCollect).length,
       "a second row owing a search that is already on file sends nothing at all: the answer is served from what this account already paid for").toBe(0);
     expect(meter.paidUsd, "so the meter and the attempt agree, and a hit costs nothing").toBe(paidAfterCollect);
-    void asked;
+    expect(table("evidence_cache").some((row) => row.status === "ready" && row.provider_task_id === "task-1" && row.payload != null), "the earlier collect completed the posted task before cache-only reuse").toBe(true);
   });
 });
 
@@ -208,10 +208,10 @@ describe("the providers taking their real time", () => {
   beforeEach(async () => { table("page_snapshots").length = 0; await seedOwnedPages([HUB_PAGE]); script.reasoning = (body) => reasoningReply({ ...REASONING, body_edit: publicationDraft(WRITER), editor_judgement: JUDGE }, body); script.search = healthySearch({ posts: 0 }); script.page = rivalPage; });
 
   it("a substantive body job for the hub row finishes inside the 200 second slice at the measured provider-time ratios, and its copy is on the store", async () => {
-    seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = SLOW; const from = clock.ms, began = Date.now(); // everything the row needs is on file but the rival at position five, which this same drive reads for itself
+    seedResearchState(basis, { serps: serpFor(QUERY) }); script.latency = SLOW; const from = clock.ms, began = performance.now(); // everything the row needs is on file but the rival at position five, which this same drive reads for itself
     const run = await drive(["replenish_ready"], "keyword_discovery"), took = clock.ms - from, scripted = meter.requests.reduce((n, r) => n + SLOW[r.kind], 0);
     expect([run.status, walkOf(run)?.outcomes?.ended, walkOf(run)?.outcomes?.receipts?.some((r) => r.family === "deep_bundle" && r.outcome === "produced"), await readyCopy()], "the drive reaches the writer, the exact opportunity job is produced and the finished copy is what reloads from the store").toEqual(["completed", "ran", true, WRITER.after]);
-    expect([took, took < 200_000, Date.now() - began >= took - 100], `the clock moved by exactly the time the providers took (${meter.requests.length} calls), well inside the slice, and the wait was real`).toEqual([scripted, true, true]);
+    expect([took, took < 200_000, performance.now() - began >= took - 100], `the clock moved by exactly the time the providers took (${meter.requests.length} calls), well inside the slice, and the wait was real`).toEqual([scripted, true, true]);
   }, 120_000);
 
   it("a lease loss preserves the written row; new winner evidence is reviewed once, then the settled source is reused on the next day", async () => {
