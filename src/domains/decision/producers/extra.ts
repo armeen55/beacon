@@ -117,12 +117,12 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
 /** THE FINDING A SWEEP CARD ALREADY MADE, SAID IN THE LADDER'S OWN WORDS (operator, 2026-09-04). Thirty-two live descriptions were minted off a named defect in the page's own line and carried no cause at all: the detail page printed "No cause is named for it yet" over a finding the card's own headline states, and the wording gate went on holding every replacement "until a diagnosis names what is wrong with the current description" while that diagnosis sat unsaid in the same object. NO NEW VOCABULARY, because none is needed: a description missing or repeated across siblings IS the line Google displays for the page, a page missing what every winner covers IS incomplete coverage, and a page nothing links to IS where a reader gets sent next. `evidenceKeys` name the readings the card was actually made from. */
 const structural = (cause: CauseFinding["cause"], action: CauseFinding["action"], evidenceKeys: string[], explanation: string, falsifier: string): CauseFinding => ({ cause, action, evidenceKeys, competingExplanations: [], notConsidered: [], explanation, falsifier });
 /** 3. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each page with the defect gets its own card and figures and the class total rides along as context. */
-function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number, bodies: ReadonlyMap<string, OwnedPageBody>, now: Date): Draft[] {
+function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number, bodies: ReadonlyMap<string, OwnedPageBody>, now: Date, templateContext: readonly OwnedPageEvidence[] = []): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0; /** A ZERO SUPPRESSES THE CLAUSE THAT RANKS IT (rendered app, 2026-09-05). A live description read "20 pages carry the same templated description ... and /california-persian-cities/berkeley is the busiest of them at 0 impressions in 90 days", which calls a page the busiest and then prints the figure that says it is not. A superlative is a claim about a figure, so where the figure is zero the claim is dropped and the sentence that survives is the one the evidence carries. */ const ranked = (p: OwnedPageEvidence): string => impressions(p) > 0 ? `, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days` : "";
   const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] => [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
   const byIdentity = new Map<string, OwnedPageEvidence>();
-  for (const p of all) { const key = identityOf(p); if (!byIdentity.has(key) || canonicalUrlKey(p.url) === key) byIdentity.set(key, p); }
-  const pages = [...byIdentity.values()];
+  for (const p of templateContext.length ? [...templateContext, ...all] : all) { const key = identityOf(p); if (!byIdentity.has(key) || canonicalUrlKey(p.url) === key || all.includes(p) && !all.includes(byIdentity.get(key)!)) byIdentity.set(key, p); }
+  const pages = templateContext.length ? [...byIdentity.values()].filter(p => all.some(target => identityOf(target) === identityOf(p))) : [...byIdentity.values()];
   /** THE PAGES GOOGLE PUTS IN FRONT OF THIS PAGE'S BIGGEST SEARCH, when that search has been read. */
   const winnersAreStores = (p: OwnedPageEvidence): boolean => {
     const head = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
@@ -153,24 +153,26 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   });
 
   const boilerplate = new Map<string, OwnedPageEvidence[]>();
-  for (const p of pages) {
+  for (const held of byIdentity.values()) {
+    const target = templateContext.length ? pages.find(p => identityOf(p) === identityOf(held)) : undefined, body = target && bodies.get(canonicalUrlKey(target.url));
+    const p = target && templateContext.length ? { ...target, content: { ...target.content!, title: body?.title ?? null, h1: body?.h1 ?? null, metaDescription: body?.metaDescription ?? null } } : held;
     const meta = (p.content?.metaDescription ?? "").trim().toLowerCase();
-    if (!meta) continue;
+    if (!meta || target && templateContext.length && !currentCapture(target, body || undefined, now, snapshot.scope.tenantId)) continue;
     const subject = labelOf(p).trim().toLowerCase(), parts = subject ? meta.split(subject) : [];
     const skeleton = parts.length === 2 && !/[\p{L}\p{N}]$/u.test(parts[0]!) && !/^[\p{L}\p{N}]/u.test(parts[1]!) ? parts.join(" ").replace(/\s+/g, " ").trim() : "";
     if (skeleton.length > 40) boilerplate.set(skeleton, [...(boilerplate.get(skeleton) ?? []), p]);
   }
   const templated = [...boilerplate.values()].filter((g) => g.length >= 5);
-  for (const p of rank(templated.flat()).filter((p) => !wrong.has(canonicalUrlKey(p.url)))) { // the meter is DELETED (operator, 2026-08-30): every page sharing the template gets its card
+  for (const p of rank(templated.flat()).filter((p) => (!templateContext.length || all.some(target => identityOf(target) === identityOf(p))) && !wrong.has(canonicalUrlKey(p.url)))) { // Every evaluated page sharing the template gets its own card.
     const family = templated.find((g) => g.includes(p))!.length;
     out.push({
       page: p, slug: "missing_description", field: "meta", query: topQueryOf(p), minutes: 3, confidence: "low", refs: family, impact: recoverableClicks(p, expectedCtrAt),
-      headline: `A search description of this page's own, where ${family} pages share one line`, before: (p.content?.metaDescription ?? "").trim() || null,
+      headline: `A search description of this page's own, where ${family} saved descriptions share one line`, before: (p.content?.metaDescription ?? "").trim() || null,
       after: "Write a description of about 150 characters that says what only this page answers, and ends on a fact about the page rather than an instruction to read it.",
-      why: `${count(family, "page")} carry the same templated description with only the name swapped${ranked(p)}. A line every sibling repeats gives nobody a reason to click this one.`,
+      why: `${count(family, "saved description")} carry the same templated line with only the name swapped${ranked(p)}. A line every sibling repeats gives nobody a reason to click this one.`,
       steps: [`Open the site editor on ${pathOf(p.url)}`, "Replace the templated description with one written for this page", "Mark it done here and the click rate gets read again"],
-      hints: [`${count(family, "page")} share one templated description`],
-      limitation: "Read off the last stored copy of each page, so a description rewritten since that read is not counted here.", cause: structural("ctr_snippet", "meta", [RECEIPT.copy, RECEIPT.gsc], `${count(family, "page")} of this site carry the same templated description with only the name swapped, so the line under ${pathOf(p.url)} in the results gives nobody a reason to click this one rather than a sibling.`, `If ${pathOf(p.url)} is found carrying a description no sibling repeats, there is nothing wrong with the line it has.`),
+      hints: [`${count(family, "saved description")} share one templated line`],
+      limitation: "Read off the last stored copy of each page, so a description rewritten since that read is not counted here.", cause: structural("ctr_snippet", "meta", [RECEIPT.copy, RECEIPT.gsc], `${count(family, "saved description")} from this site carry the same templated line with only the name swapped, so the line under ${pathOf(p.url)} in the results gives nobody a reason to click this one rather than a sibling.`, `If ${pathOf(p.url)} is found carrying a description no sibling repeats, there is nothing wrong with the line it has.`),
     });
   }
 
@@ -270,12 +272,10 @@ function unansweredCards(snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[],
 /** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against the queue it holds. Never throws: a source that will not read narrows the answer instead of failing the pass. */
 export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
   /** THE PASS'S AEO DIAGNOSIS PURSE. Absent means an UNFUNDED caller, so nothing is bought and every case stays owed. */
-  aeoDiagnoses?: number; focusPage?: string;
-  /** THE BAR THIS ACCOUNT'S OWN SEARCHES ARE HELD TO, threaded from the pass that fitted it. Absent falls back to the industry table, a far more generous bar, so a caller that can fit one should. */
+  aeoDiagnoses?: number; focusPage?: string; templateContext?: readonly OwnedPageEvidence[];
   curve?: Pick<TenantCtrCurve, "expectedCtrAt">;
   /** THE PASS'S PAGE-READING BUDGET, the second of the two named budgets a production pass owns. Handed in so the one paid read this file makes is counted where every other paid call is counted. */
   reads?: { left: number };
-  /** THE CANONICAL DEMAND UNITS, loaded once by the pass and handed to every producer that joins audiences. */
   units?: readonly CanonicalDemandUnit[];
   /** THE EVIDENCE GENERATION THIS PASS WORKS UNDER, the one the walk authorizes checked statements against. */ basis?: string | null; checked?: readonly FactCheck[] | null; bodyReads?: Parameters<typeof loadOwnedPageBodies>[3];
   /** Default true. False on a dry run, and then nothing this producer concludes is written down either. */
@@ -312,7 +312,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
   const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null, written, input.focusPage);
   const partial = new Map<string, string>(), drafts = [...cases.drafts,
-    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt, currentBodies, now), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies: currentBodies, misses, facts, saved: [...rows, ...recovered], recovered: new Set(recovered.map((p) => p.id)), partial, written, basis: input.basis ?? null, tenantId, now })]; // LAST, so an AI case about the same question keeps it: one question is one card
+    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt, currentBodies, now, input.templateContext), ...unansweredCards(snapshot, pages, expectedCtrAt, { bodies: currentBodies, misses, facts, saved: [...rows, ...recovered], recovered: new Set(recovered.map((p) => p.id)), partial, written, basis: input.basis ?? null, tenantId, now })]; // LAST, so an AI case about the same question keeps it: one question is one card
   const out: ChangeProposal[] = [], recoveredPartial = new Map<string, PartialWinnerRecovery>(), aeoHold = new Set<string>();
   const answered = new Set<string>();
   for (const d of drafts) {
@@ -347,8 +347,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
 }
 
 /** THE ONE ENTRANCE FOR A PASS: loads the demand units once (both producers join the SAME audiences) and runs the $0 queue. The paid funnel's early return used to skip this producer entirely, so a paused quiet account never judged a single AI case (first canonical $0 acceptance run, 2026-08-21). */
-export async function extraQueuePass(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
-  curve?: Parameters<typeof extraQueueCards>[0]["curve"]; reads?: { left: number }; persist?: boolean; aeoDiagnoses?: number; focusPage?: string; basis?: string | null; checked?: readonly FactCheck[] | null; bodyReads?: Parameters<typeof loadOwnedPageBodies>[3] }): Promise<{
+export async function extraQueuePass(input: Omit<Parameters<typeof extraQueueCards>[0], "units">): Promise<{
   run: ExtraQueueRun; unitLoad: Awaited<ReturnType<typeof import("@/domains/evidence/demand-unit-loader")["loadCanonicalDemandUnits"]>> | null }> {
   const unitLoad = await import("@/domains/evidence/demand-unit-loader")
     .then((m) => m.loadCanonicalDemandUnits(input.tenantId, input.snapshot, input.curve, input.now)).catch(() => null);

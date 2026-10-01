@@ -45,14 +45,14 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
     for (const r of fx.RETRIEVED_ONLY) expect(JSON.stringify(a.citations)).not.toContain(r.domain); // retrieved and cited are different claims
     expect(a.retrievedResults!.map((r) => r.domain)).toEqual(fx.RETRIEVED_ONLY.map((r) => r.domain)); // retrieved pages are KEPT, on their own channel
     expect(a.brandMentions).toEqual(["Atlaspedia", "Rival A"]); // the brands the engine itself named
-    expect([a.modelServed, a.webSearchReported, a.answerText!.includes("Dawn flying")]).toEqual(["gpt-4o-search", true, true]); // the whole markdown answer, and web results really in hand
+    expect([a.modelServed, a.webSearchReported, a.answerText!.includes("Dawn flying")]).toEqual(["gpt-4o-search", null, true]); // citations and retrieval are retained; this endpoint reports no search-state flag
     const dry = parsed("llm_scraper_chatgpt", fx.scraperAnswer({ sources: null, searchResults: null, brandEntities: null }));
     expect([dry.citations, dry.retrievedResults, dry.brandMentions, dry.webSearchReported]).toEqual([null, null, null, null]); // this endpoint reports no web-search flag, so silence stays silence
   });
   it("reads one standardized answer shape for all four engines, and keeps not-observable apart from observed-zero", () => {
     const four = (["llm_chatgpt", "llm_claude", "llm_gemini", "llm_perplexity"] as const).map((k) => parsed(k, fx.llmAnswer()));
     expect(new Set(four.map((a) => JSON.stringify(a))).size).toBe(1); // the engines differ in the ASK, never the answer shape
-    expect([four[0]!.citations!.map((c) => c.domain), four[0]!.webSearchReported, four[0]!.fanOutQueries]).toEqual([["rival-a.example"], true, ["kite festival opening times"]]);
+    expect([four[0]!.citations!.map((c) => c.domain), four[0]!.webSearchReported, four[0]!.fanOutQueries, parsed("llm_chatgpt", fx.llmAnswer({ webSearch: false })).webSearchReported]).toEqual([["rival-a.example"], true, ["kite festival opening times"], false]);
     const bare = parsed("llm_perplexity", fx.llmAnswer({ fanOut: null, webSearch: null, annotations: [] }));
     expect([bare.fanOutQueries, bare.webSearchReported, bare.citations]).toEqual([null, null, []]); // not observable is null; observed zero is []
   });
@@ -131,7 +131,7 @@ describe("the replay drives the REAL funnel executors, not a mock of them", () =
     expect(consumer.answer_text).toBe(parsed("llm_scraper_chatgpt", fx.scraperAnswer()).answerText); // the ANSWER, not a hash of one
     expect(consumer.journey.cited_sources!.map((c) => c.domain)).toEqual(["rival-a.example", SITE]);
     expect(consumer.journey.retrieved_results!.map((r) => r.domain)).toEqual(fx.RETRIEVED_ONLY.map((r) => r.domain)); // read and not credited, kept apart from cited
-    expect([consumer.journey.brand_mentions, consumer.journey.fan_outs!.length, consumer.journey.web_search_reported]).toEqual([["Atlaspedia", "Rival A"], 2, true]);
+    expect([consumer.journey.brand_mentions, consumer.journey.fan_outs!.length, consumer.journey.web_search_reported]).toEqual([["Atlaspedia", "Rival A"], 2, null]);
     expect([consumer.cache_key, consumer.cost_usd, consumer.analysis]).toEqual(["ck-scraper", 0.01, null]); // the envelope it came from, what it cost, and no verdict yet
     expect(consumer.prompt_text).toBe(PROMPTS[0]!.text);});
   it("checks the search that is SLIPPING before the one that is climbing", async () => {

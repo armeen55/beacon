@@ -124,7 +124,7 @@ describe("the answer is kept whole", () => {
     expect([consumer.answer_hash!.length, consumer.answer_text!.length > 100]).toEqual([16, true]); expect(consumer.journey.cited_sources!.map((c) => c.domain)).toEqual(["rival-a.example", SITE]);
     expect(consumer.journey.retrieved_results!.map((r) => r.domain)).toEqual(fx.RETRIEVED_ONLY.map((r) => r.domain));
     for (const r of fx.RETRIEVED_ONLY) expect(JSON.stringify(consumer.journey.cited_sources)).not.toContain(r.domain); // read is not credited
-    expect([consumer.journey.brand_mentions, consumer.journey.web_search_reported, consumer.journey.fan_outs]).toEqual([["Atlaspedia", "Rival A"], true, ["what happens at a kite festival", "kite festival food traditions"]]);
+    expect([consumer.journey.brand_mentions, consumer.journey.web_search_reported, consumer.journey.fan_outs]).toEqual([["Atlaspedia", "Rival A"], null, ["what happens at a kite festival", "kite festival food traditions"]]);
     const standardized = rows.find((r) => r.engine === "gemini")!;
     expect([standardized.observation_mode, standardized.journey.retrieved_results, standardized.journey.brand_mentions]).toEqual(["standardized_response", null, null]); // llm_responses reports neither: null is not an observed empty
     expect([standardized.journey.web_search_reported, standardized.journey.cited_sources!.length]).toEqual([true, 1]);

@@ -391,7 +391,7 @@ function parseScraper(env: ProviderEnvelope): ParsedAiAnswer {
   const citations = links(result0?.sources), retrievedResults = links(result0?.search_results);
   return {
     answerText: str(result0?.markdown), modelServed: str(result0?.model), citations, retrievedResults,
-    webSearchReported: (citations?.length ?? 0) + (retrievedResults?.length ?? 0) > 0 ? true : null,
+    webSearchReported: null,
     fanOutQueries: arrStr(result0?.fan_out_queries), usage: usageOf(result0),
     brandMentions: brandTitles(result0?.brand_entities),
   };
