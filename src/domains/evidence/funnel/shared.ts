@@ -175,7 +175,7 @@ export type Interp = {
    *  a task is retried free, reposted once, or paused without spending again. */
   disposition?: FailureDisposition;
   /** Missing credentials are genuine unavailable coverage. */
-  soft?: "not_configured"; detail?: string;
+  soft?: "not_configured"; detail?: string; attempted?: false;
 };
 
 /** Interpret a boundary result: hit/ok carry evidence; waiting is durable/resumable
@@ -188,7 +188,7 @@ export function interp(r: CachedCallResult): Interp {
     case "waiting": return { kind: "waiting", hit: false, cacheKey: r.cacheKey, costUsd: r.costUsd, providerTaskId: r.providerTaskId, modelServed: null, modelRequested: r.modelRequested ?? null, detail: r.detail };
     // A spend cap is a plain recoverable pause, never a dead task identity.
     case "capped": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, disposition: "none", detail: r.detail };
-    case "error": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, disposition: r.disposition, detail: r.detail };
+    case "error": return { kind: "failed", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, disposition: r.disposition, detail: r.detail, ...(r.attempted === false ? { attempted: false as const } : {}) };
     default: return { kind: "soft", hit: false, cacheKey: r.cacheKey, costUsd: 0, modelServed: null, modelRequested: null, soft: r.state, detail: r.detail };
   }
 }

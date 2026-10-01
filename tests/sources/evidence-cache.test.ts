@@ -99,9 +99,9 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
   it("closed money paths and exact saved-only cache identities never reserve, claim or transmit", async () => {
     const a = identityCacheKey(resolved()); expect([identityCacheKey(resolved({ tenantId: "tenant-b" })), [identityCacheKey(resolved({ locationCode: 2826 })), identityCacheKey(resolved({ modelRequested: "gpt-4o" }))].includes(a)]).toEqual([a, false]);
     const spy = vi.fn(), missRead = vi.fn(async () => null), states = []; const cap = makeDeps({}, "refuse"), rerr = makeDeps({}, "throw");
-    const brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) }), nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never, cacheRead: missRead });
-    for (const g of [cap, rerr, brk, nc]) { states.push((await runResolvedCall(resolved(), g.deps)).state); expect(g.calls.fetch).toHaveLength(0); }
-    expect(states).toEqual(["capped", "error", "capped", "not_configured"]);
+    const sync = makeDeps({ claimEvidenceFetch: () => { throw new Error("null provenance"); } }), asyncClaim = makeDeps({ claimEvidenceFetch: async () => { throw new Error("claim unavailable"); } }), brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) }), nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never, cacheRead: missRead });
+    for (const g of [cap, rerr, brk, nc, sync, asyncClaim]) { const out = await runResolvedCall(g === sync ? taskCall() : resolved(), g.deps); states.push(out.state); expect(g.calls.fetch).toHaveLength(0); if (g === sync || g === asyncClaim) expect([out.state === "error" && out.attempted, out.state === "error" && out.detail, g.calls.reserve, g.calls.life, g.calls.writes]).toEqual([false, "This request could not be reserved, so no provider was called. Saved evidence is preserved.", [], [], []]); }
+    expect(states).toEqual(["capped", "error", "capped", "not_configured", "error", "error"]);
     expect([brk.calls.reserve, brk.calls.adjust, nc.calls.reserve]).toEqual([[0.01], [-0.01], []]); // the receipt inbox precedes the breaker; a new reservation is returned untouched
     expect([spy.mock.calls.length, missRead.mock.calls.length, nc.calls.writes.length]).toEqual([0, 1, 0]); const exact = resolved(), saved = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never, cacheRead: row({ cache_key: exact.cacheKey, endpoint: exact.postPath, status: "ready", payload: liveOk(0.0021), expires_at: FUTURE }) }); const hit = await runResolvedCall(exact, saved.deps); expect([hit.state, hit.state === "hit" && hit.envelope.tasks?.[0]?.result, saved.calls.fetch.length, saved.calls.reserve.length, saved.calls.writes.length, spy.mock.calls.length]).toEqual(["hit", [{ rank: 1 }], 0, 0, 0, 0 ]);
     await PROOF_SPEND.run("tenant-a", 8, 0, async () => {
@@ -113,7 +113,7 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
       [50301, 0, "none"], [50000, 0, "none"], [50100, undefined, "quarantined"], [50301, undefined, "quarantined"]]; // no cost field = it may have been charged
     for (const [code, cost, want] of cases) for (const call of [resolved(), taskCall()]) {
       const g = makeDeps(); g.deps.fetchImpl = fetcher(g.calls, () => inBody(code, cost)); const res = await runResolvedCall(call, g.deps);
-      expect([res.state === "error" && res.disposition, g.calls.adjust, g.calls.fetch.length]).toEqual([want, want === "quarantined" ? [] : [-0.01], 1]); // refunded unless it may have been charged
+      expect([res.state === "error" && res.disposition, res.state === "error" && res.attempted, g.calls.adjust, g.calls.fetch.length]).toEqual([want, undefined, want === "quarantined" ? [] : [-0.01], 1]); // refunded unless it may have been charged
       expect([blockedHold(g.calls.writes), released(g.calls.writes), cleared(g.calls.writes), quarantined(g.calls.writes)]).toEqual([want === "blocked", want === "none", false, want !== "none"]); // never repost_once, never a dead-identity clear
       if (want === "none") expect(g.calls.writes.some((w) => w.status === "error" && w.posted_attempt_at === null)).toBe(true); // the release also clears the anti-repost receipt
       if (want !== "quarantined") expect(res.state === "error" && res.detail).toContain(String(code));

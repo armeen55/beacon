@@ -404,7 +404,7 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
           if (r.kind === "waiting") { if (r.providerTaskId) { s.status = "posted"; s.cacheKey = r.cacheKey; } else failedDetail = r.detail ?? "A search fetch still owns its lease. It stays pending until a confirmed provider task or answer arrives."; }
           else if (r.kind === "evidence") { const parsed = parseSerp(r.payload); if (parsed) { applySerp(s, parsed, nowIso(), r.payload, tenantId); reopenDue(s); } }
           else if (r.kind === "failed" || r.kind === "soft") {
-            noAttempt = r.kind === "soft";
+            noAttempt = r.kind === "soft" || r.attempted === false;
             // daily_limit and blocked are the stops; quarantined = explicit unavailable coverage; the rest continue.
             if (r.disposition === "daily_limit") limitDetail = r.detail ?? null;
             else if (r.disposition === "blocked") blockedDetail = blockedNote(r);

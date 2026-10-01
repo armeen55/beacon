@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { log } from "@/lib/logger";
 import { isDataForSeoConfigured, monthlyCapUsd, runDataForSeoTransport } from "./client";
 import { resolveDeps } from "./default-deps";
 import { classifyPaidResponse, classifyTaskStatus } from "./status-contract";
@@ -65,16 +66,15 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
   const now = d.now();
   const paths = { getPath: (_e: string, id: string) => r.getPath?.(id) ?? null, tasksReadyPath: () => r.tasksReadyPath, ttlMsFor: () => r.ttlMs };
   if (PROOF_SPEND.cacheOnly() || !isDataForSeoConfigured(d.env)) { try { const saved = await d.cacheRead(cacheKey); if (saved?.cache_key === cacheKey && saved.endpoint === r.postPath && saved.status === "ready" && !saved.quarantined_at && !saved.error_detail && saved.payload != null && Date.parse(saved.expires_at) > now.getTime()) return { state: "hit", envelope: saved.payload as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: saved.model_served }; } catch { return { state: "error", cacheKey, disposition: "none", detail: "Saved evidence could not be read; no provider call was made." }; } return PROOF_SPEND.cacheOnly() && isDataForSeoConfigured(d.env) ? { state: "capped", cacheKey, detail: "The saved-only request has no fresh complete cached answer; no provider was called." } : { state: "not_configured", cacheKey, detail: "DataForSEO not configured" }; }
-  let claim: EvidenceCacheClaim;
-  try {
-    claim = await d.claimEvidenceFetch({
-      cacheKey, endpoint: r.postPath, endpointVersion: r.endpointVersion, locationCode: r.locationCode,
-      inputHash: sha256(stableStringify(r.publicInput)).slice(0, 40), inputSummary: stableStringify(r.publicInput).slice(0, 200),
-      languageCode: r.languageCode, device: r.device, modelRequested: r.modelRequested, claimSeconds: CLAIM_LEASE_SECONDS,
-    });
-  } catch (err) {
-    return { state: "error", cacheKey, disposition: "none", detail: `This fetch could not be reserved (${short(err)}). It is tried again on the next pass.` };
-  }
+  const claim = await Promise.resolve().then(() => d.claimEvidenceFetch({
+    cacheKey, endpoint: r.postPath, endpointVersion: r.endpointVersion, locationCode: r.locationCode,
+    inputHash: sha256(stableStringify(r.publicInput)).slice(0, 40), inputSummary: stableStringify(r.publicInput).slice(0, 200),
+    languageCode: r.languageCode, device: r.device, modelRequested: r.modelRequested, claimSeconds: CLAIM_LEASE_SECONDS,
+  })).catch(err => {
+    log.warn("[evidence-cache] request reservation failed before provider transmission", { cacheKey, endpoint: r.postPath, error: short(err) });
+    return null;
+  });
+  if (claim == null) return { state: "error", cacheKey, disposition: "none", attempted: false, detail: "This request could not be reserved, so no provider was called. Saved evidence is preserved." };
   if (claim.outcome === "ready") return { state: "hit", envelope: (claim.payload ?? {}) as ProviderEnvelope, costUsd: 0, cacheKey, modelServed: claim.modelServed };
   if (claim.outcome === "pending") {
     if (r.mode === "task") return collectResolvedTask(cacheKey, paths, deps);

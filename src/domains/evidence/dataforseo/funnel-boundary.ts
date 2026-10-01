@@ -224,7 +224,7 @@ export type CachedCallResult =
    *  a NEWLY accepted task POST, contributed exactly once; 0 otherwise. */
   | { state: "waiting"; cacheKey: string; providerTaskId: string | null; costUsd: number; modelRequested?: string | null; detail: string }
   | { state: "not_configured" | "capped"; cacheKey: string | null; detail: string }
-  | { state: "error"; cacheKey: string | null; disposition: FailureDisposition; detail: string };
+  | { state: "error"; cacheKey: string | null; disposition: FailureDisposition; detail: string; attempted?: false };
 
 export type FunnelBoundaryDeps = Record<string, unknown>;
 
