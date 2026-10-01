@@ -15,7 +15,7 @@ vi.mock("@/domains/evidence", () => {
     keywordDiscoveryUnit: done, promptObservationUnit: done, serpAnalysisUnit: done,
     winningPagesUnit: (_d: unknown, _q: unknown, _a: unknown, _u: unknown, busted: string | null) => {
       passedBustedAt = busted; return async () => ({ status: "done", cursor: null, progress: {} });},};});
-import { isCurrent } from "@/domains/evidence/freshness";
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 import type { BundleComponent } from "@/domains/decision"; import { COPY_RULES } from "@/domains/decision/copy-sanitize";
 import { shipmentBustedAt, shipmentsAwaitingVerification, verifyDueShipments, verifyShipment } from "@/domains/measurement/verify-shipment";
@@ -266,16 +266,16 @@ describe("a historical record no page can answer is reconciled from the record, 
   const held = (id: string, tenant: string, after: string, structured = false) => ({ id, tenant, page: URL_, path: "/nowruz", actionType: "answer_block", after,
     implementedAt: "2026-07-30T09:00:00Z", verification: null as unknown, componentsApplied: [{ kind: "answer_block", label: "Answer at the top of the page", after, ...(structured ? COPY_RULES.publication({ after, units: [{ kind: "paragraph", text: after }], target: COPY_RULES.target("", [], "opening") }) : {}) }] });
   beforeEach(() => { ROWS.length = 0; WRITES.length = 0; });
-  it("spends no live read on a record whose applied wording was never stored or is still an unfilled template, and reads only the record that names something to look for, on two accounts", async () => {
+  it.each([false, true])("reconciles missing applied wording on two accounts and inspects answerable records only outside saved-only work (%s)", async (savedOnly) => {
     ROWS.push(held("blank", "acct-one", ""), held("template", "acct-one", "Isfahan has a population of NUMBER as of YEAR (SOURCE)."), held("real", "acct-one", "A nowruz table is set with seven symbolic items known together as the haft seen, one for each wish.", true));
     ROWS.push(held("blank-two", "acct-two", ""), held("template-two", "acct-two", "It has a population of NUMBER as of YEAR (SOURCE)."));
     let reads = 0; const fetchPage = (async (url: string) => { reads += 1; return { ok: true as const, html: PAGE, status: 200, finalUrl: url }; }) as unknown as Fetcher;
-    expect([await verifyDueShipments("acct-one", { ...base, fetchPage }), reads], "three answers written and exactly ONE website read, and it belongs to the record that names something to find").toEqual([3, 1]);
+    expect([await (savedOnly ? PROOF_SPEND.run("acct-one", 1, 0, () => verifyDueShipments("acct-one", { ...base, fetchPage })) : verifyDueShipments("acct-one", { ...base, fetchPage })), reads], "saved-only work reconciles the two records naming no applied words; only live work can inspect the answerable one").toEqual(savedOnly ? [2, 0] : [3, 1]);
     const by = Object.fromEntries(WRITES.map((w) => [w[1], w[2] as unknown as { status: string; reason?: string; recheckAfter?: string | null; checks?: number; components: Array<{ note: string }> }]));
-    expect([by.blank!.status, by.blank!.reason, by.blank!.recheckAfter ?? null, by.blank!.checks, by.template!.reason, by.real!.status], "each unanswerable one is settled for good: no day promised and no bounded check spent, while the answerable one is graded exactly as before").toEqual(["blocked", "applied_wording_missing", null, 0, "applied_wording_missing", "verified"]);
+    expect([by.blank!.status, by.blank!.reason, by.blank!.recheckAfter ?? null, by.blank!.checks, by.template!.reason, by.real?.status], "each unanswerable one is settled for good: no day promised and no bounded check spent, while the answerable one is graded exactly as before").toEqual(["blocked", "applied_wording_missing", null, 0, "applied_wording_missing", savedOnly ? undefined : "verified"]);
     expect([by.blank!.components[0]!.note.includes("never recorded"), by.template!.components[0]!.note.includes("never filled in"), by.blank!.components[0]!.note.includes("Record the words")]).toEqual([true, true, true]);
     reads = 0; WRITES.length = 0;
-    expect([await verifyDueShipments("acct-two", { ...base, fetchPage }), reads], "the second account behaves identically: two answers, and the website is never touched").toEqual([2, 0]);
+    expect([await (savedOnly ? PROOF_SPEND.run("acct-two", 1, 0, () => verifyDueShipments("acct-two", { ...base, fetchPage })) : verifyDueShipments("acct-two", { ...base, fetchPage })), reads], "the second account behaves identically: two answers, and the website is never touched").toEqual([2, 0]);
     for (const r of ROWS) r.verification = WRITES.concat([]).find((w) => w[1] === r.id)?.[2] ?? r.verification;
     const newer = async () => new Map([["own.com/nowruz", { fetchedAt: "2026-09-01T00:00:00Z" } as never]]);
     expect((await shipmentsAwaitingVerification("acct-two", 15, { ...base, readHeld: newer })).map((r) => r.id), "and a newer capture of the page does not reopen them either: a fresh read cannot answer a record that names nothing to look for").toEqual([]);});
@@ -315,11 +315,11 @@ describe("a change the operator implemented busts that page's freshness", () => 
     expect(await shipmentBustedAt(T, "https://own.com/")).toBe("2026-07-30T09:00:00Z"); expect(await shipmentBustedAt(T, URL_)).toBeNull();
     ROWS.push({ id: "guide", page: "https://own.com/guide", path: "/guide", implementedAt: "2026-07-30T09:00:00Z" });
     expect(await shipmentBustedAt(T, "https://own.com/nowruz-guide")).toBeNull(); });
-  it("forces a re-read of a body that is still inside its freshness window but older than the change", async () => {
-    const bodyReadAt = new Date(NOW - DAY).toISOString(), busted = new Date(NOW - DAY / 2).toISOString();
-    expect(isCurrent("owned_page", bodyReadAt, NOW)).toBe(true); // a day old, well inside the weekly window
-    expect(isCurrent("owned_page", bodyReadAt, NOW, busted)).toBe(false); // but it describes the page as it was before the change
-    expect(isCurrent("owned_page", new Date(NOW - DAY / 4).toISOString(), NOW, busted)).toBe(true); // a read taken after it stands
+  it("keeps answerable saved-only verification due without a fetch, receipt, capture or spent check", async () => {
+    const prior = { id: "saved-only", page: URL_, implementedAt: "2026-07-29T09:00:00Z", actionType: "meta", after: "Set a nowruz table in seven steps.", verification: { status: "blocked", checkedAt: "2026-07-29T12:00:00Z", checks: 2, recheckAfter: "2026-07-30" } }, before = JSON.stringify(prior), fetchPage = vi.fn(serve(PAGE)), record = vi.fn(async () => true), writeOwnedPage = vi.fn(async () => {});
+    ROWS.push(prior);
+    const written = await PROOF_SPEND.run(T, 1, 0, () => verifyDueShipments(T, { ...base, fetchPage, record, writeOwnedPage }));
+    expect([written, fetchPage.mock.calls.length, record.mock.calls.length, writeOwnedPage.mock.calls.length, JSON.stringify(prior)]).toEqual([0, 0, 0, 0, before]);
   });
   it("passes that moment into the ONE owned page a research pass may read", async () => {
     ROWS.push({ id: "a", page: URL_, path: "/nowruz", implementedAt: "2026-07-29T09:00:00Z" });

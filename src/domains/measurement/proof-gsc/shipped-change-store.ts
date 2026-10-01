@@ -1,5 +1,5 @@
 import "server-only";
-import { cache } from "react";
+import { cache } from "react"; import { isDeepStrictEqual } from "node:util";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
 import { log } from "@/lib/logger";
@@ -11,9 +11,7 @@ import { settledVerdictOf } from "./measure-lifecycle";
 import { SHIPMENT_PROOF } from "./shipment-proof";
 
 const TABLE = "shipped_change_proof";
-/** What the live check found. FROZEN SHAPE, written only through `recordVerification`; `components` names
- *  each piece so a partly-applied bundle reads as partly applied. A click never stands in for a reading, and the
- *  retired `operator_confirmed` label it once stood in as is gone: no row in the ledger carries it. */
+/** The recorded live reading, component by component; an operator confirmation never substitutes for a read. */
 export type ShipmentVerification = {
   checkerContract?: number;
   proof?: { appliedHash: string; inspectedHash: string } | null;
@@ -27,15 +25,16 @@ export type ShipmentVerification = {
    *  outcome. The status says what was seen, this says what to do about it. Null on a confirmed reading and on every row written before the cause was named. */
   reason?: "not_published_yet" | "page_unreachable" | "rendered_content_gap" | "address_mismatch"
     | "stale_reading" | "applied_wording_missing" | "published_differently" | "google_not_updated" | "unmeasurable" | null;
-  /** LATER READS THAT DISAGREED WITH A CONFIRMED ONE, filed beside it and never over it (keepConfirmed). */
-  rechecks?: Array<{ status: ShipmentVerification["status"]; checkedAt: string; reason: ShipmentVerification["reason"] }>;
+  /** Archived readings survive later verification; legacy thin entries remain readable. */
+  rechecks?: Array<Omit<ShipmentVerification, "rechecks" | "components"> & { components?: ShipmentVerification["components"] }>;
 };
 const CONFIRMED: ReadonlySet<string> = new Set(["verified", "partially_verified"]);
 /** Preserve confirmed status through a differing recheck; first, same-status and fully verified reads replace the receipt. */
 function keepConfirmed(held: ShipmentVerification | null | undefined, next: ShipmentVerification): ShipmentVerification {
-  if (held == null || held.checkerContract !== SHIPMENT_PROOF.contract || !CONFIRMED.has(held.status) || next.status === "verified" || next.status === held.status) return next;
-  // THE RECHECK DAY IS THE LATEST READ'S, never the confirmed read's: a kept `recheckAfter` already in the past re-queued a partly verified row on every pass for ever, and `rechecks` grew without bound.
-  return { ...held, checks: next.checks ?? held.checks, recheckAfter: next.recheckAfter ?? null, rechecks: [...(held.rechecks ?? []), { status: next.status, checkedAt: next.checkedAt, reason: next.reason ?? null }] };
+  const { rechecks, ...reading } = next, history = [...(held?.rechecks ?? []), ...(rechecks ?? [])];
+  const unique = (xs: NonNullable<ShipmentVerification["rechecks"]>) => xs.filter((x, i) => xs.findIndex(y => isDeepStrictEqual(x, y)) === i);
+  if (held == null || held.checkerContract !== SHIPMENT_PROOF.contract || !CONFIRMED.has(held.status) || next.status === "verified" || next.status === held.status) return history.length ? { ...next, rechecks: unique(history) } : next;
+  return { ...held, checks: next.checks ?? held.checks, recheckAfter: next.recheckAfter ?? null, rechecks: unique([...history, reading]) };
 }
 const liveAfter = (heldLive: boolean | null | undefined, heldRead: ShipmentVerification | null | undefined, next: ShipmentVerification): boolean =>
   CONFIRMED.has(next.status) || (heldLive === true && !CONFIRMED.has(heldRead?.status ?? ""));

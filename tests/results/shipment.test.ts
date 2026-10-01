@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 const db = vi.hoisted(() => ({ state: { rows: [] as Row[], offline: false, readResponse: undefined as unknown, upsertError: null as Row | null, updateError: null as Row | null }, client: {} as Record<string, unknown> }));
-const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
-const ai = vi.hoisted(() => ({ views: vi.fn(), records: vi.fn() }));
+const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() })); const ai = vi.hoisted(() => ({ views: vi.fn(), records: vi.fn() }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; } }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "acct-a" }));
 vi.mock("@/domains/account/tenants/store", () => ({ getTenant: async () => null }));
-const invalidations = vi.hoisted(() => ({ n: 0 }));
-vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => { invalidations.n += 1; } }));
+const invalidations = vi.hoisted(() => ({ n: 0 })); vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => { invalidations.n += 1; } }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
 const storeReads = vi.hoisted(() => ({ n: 0 }));
 vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => { storeReads.n += 1; return new Map(); } }));
@@ -139,10 +137,9 @@ describe("recording what the live check found", () => {
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull(); expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
     expect([(await loadShippedChangesForTenant(T)).length, ...[(await loadShippedChangesForTenant(T))[0]].map((s) => [s.verification?.status, s.implementedAt, s.shipmentBaseline?.search?.clicks, s.after, s.verifiedLive])], "A FAILED CHECK CANNOT ERASE, DUPLICATE OR ROLL BACK AN APPLIED CHANGE: two refusals and one write later the shipment is there exactly once, with the stamp, the starting numbers and the applied copy it was recorded with").toEqual([1, ["verified", NOW.toISOString(), 9, record.after, true]]);
     await recordVerification(T, record.id, { ...verification("differs"), checks: 2, reason: "published_differently" }); const kept = (await loadShippedChangesForTenant(T))[0];
-    expect([kept.verifiedLive, kept.verification?.status, kept.verification?.checks, kept.verification?.rechecks], "A CONFIRMED READ IS KEPT: the differing recheck is filed beside it, the bound still counts it, and measurement never halts on it").toEqual([true, "verified", 2, [{ status: "differs", checkedAt: "2026-08-02T00:00:00.000Z", reason: "published_differently" }]]);
+    expect([kept.verifiedLive, kept.verification?.status, kept.verification?.checks, kept.verification?.rechecks], "A CONFIRMED READ IS KEPT: the differing recheck is filed beside it, the bound still counts it, and measurement never halts on it").toEqual([true, "verified", 2, [{ ...verification("differs"), checks: 2, reason: "published_differently" }]]);
     await upsertShippedChange({ ...(await ship({ path: "/never" })), id: "shp_never", verification: verification("blocked") }); await recordVerification(T, "shp_never", verification("not_found"));
     expect((await loadShippedChangesForTenant(T)).find((r) => r.id === "shp_never")!.verifiedLive, "verified_live means what it says: false on every read that did not confirm").toBe(false);
-    // THE OPERATOR'S OWN CONFIRMATION STANDS: the manual form wrote true with no read behind it, a not_found recheck files itself and leaves the flag, and a partial confirmation then a differing recheck keep it while the recheck day follows the LATEST read (a kept past day re-queued the row for ever).
     await upsertShippedChange({ ...(await ship({ path: "/manual" })), id: "shp_manual", verifiedLive: true }); await recordVerification(T, "shp_manual", verification("not_found"));
     const manual = () => loadShippedChangesForTenant(T).then((rows) => rows.find((r) => r.id === "shp_manual")!); expect([(await manual()).verifiedLive, (await manual()).verification?.status]).toEqual([true, "not_found"]);
     await recordVerification(T, "shp_manual", { ...verification("partially_verified"), recheckAfter: "2026-08-01", checks: 1 }); await recordVerification(T, "shp_manual", { ...verification("differs"), recheckAfter: "2026-08-05", checks: 2 });
@@ -150,7 +147,10 @@ describe("recording what the live check found", () => {
 it("replaces a contract-4 confirmation when the current structural read disagrees", async () => {
   const record = await ship(); await upsertShippedChange({ ...record, verifiedLive: true, verification: { ...verification("verified"), checkerContract: 4 } });
   await recordVerification(T, record.id, { ...verification("differs"), reason: "not_published_yet" }); const after = (await loadShippedChangesForTenant(T))[0]!;
-  expect([after.verification?.checkerContract, after.verification?.status, after.verifiedLive, after.implementedAt]).toEqual([SHIPMENT_PROOF.contract, "differs", false, NOW.toISOString()]); });
+  expect([after.verification?.checkerContract, after.verification?.status, after.verifiedLive, after.implementedAt]).toEqual([SHIPMENT_PROOF.contract, "differs", false, NOW.toISOString()]);
+  const history = [{ ...verification("verified"), checkerContract: 4, proof: { appliedHash: "a".repeat(64), inspectedHash: "b".repeat(64) } }, { ...verification("blocked"), reason: "page_unreachable" as const, checks: 3 }];
+  await upsertShippedChange({ ...after, verification: { ...verification("blocked"), reason: "stale_reading", proof: null, checks: 2, rechecks: history } }); const corrected = (await loadShippedChangesForTenant(T))[0]!; expect([corrected.verifiedLive, SHIPMENT_PROOF.of(corrected), corrected.verification?.rechecks]).toEqual([false, null, history]); await recordVerification(T, record.id, { ...corrected.verification!, recheckAfter: "2026-08-05", rechecks: history.map(h => Object.fromEntries(Object.entries(h).reverse())) as ShipmentVerification["rechecks"] });
+  expect((await loadShippedChangesForTenant(T))[0]!.verification?.rechecks).toEqual(history); for (const status of ["differs", "verified", "verified"] as const) { await recordVerification(T, record.id, verification(status)); expect((await loadShippedChangesForTenant(T))[0]!.verification?.rechecks).toEqual(history); } });
 describe("when canonical Shipment persistence is unavailable", () => {
   it.each(["PGRST204", "42P01", "57014", "offline", null, {}, [null], [{ tenant_id: "other", id: "foreign" }], [{ tenant_id: T, id: " " }]].map(reply => ({ reply, code: typeof reply === "string" ? reply : "malformed" })))("refuses unavailable or malformed SQL truth without a substitute ledger", async ({ code, reply: sample }) => {
     if (code === "offline") db.state.offline = true; else db.state.upsertError = { code, message: "canonical write unavailable" };

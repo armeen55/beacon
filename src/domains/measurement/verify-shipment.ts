@@ -1,9 +1,7 @@
 import "server-only";
 import { load } from "cheerio";
 
-/** Verify the applied unit from owned-page evidence; bind the receipt to its copy and checker. The store keeps the original verified
- * read when a later recheck differs (recordVerification); a requalification never buys a SERP. */
-
+/** Verify applied units against owned-page evidence and bind each receipt to its copy and checker. */
 import { loadBusinessProfile } from "@/domains/account";
 import { isDataForSeoConfigured } from "@/domains/evidence/dataforseo/client";
 import { parseCapability, providerCall } from "@/domains/evidence/dataforseo/funnel-boundary";
@@ -17,6 +15,7 @@ import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { syncPageSnapshots } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
 import { reportingDay } from "@/lib/reporting-day";
+import { PROOF_SPEND } from "@/lib/spend-scope";
 import { runWithProposalWorkKey } from "@/lib/cost/spend-reservations";
 import { SHIPMENT_PROOF } from "./proof-gsc/shipment-proof";
 import {
@@ -263,6 +262,7 @@ async function verifyShipmentReading(tenantId: string, shipment: VerifiableShipm
   // NO LIVE READ FOR A RECORD NO PAGE CAN ANSWER. Every piece names nothing to look for, so the answer is settled from the record itself: no fetch, no check spent, no day promised, and the row is never scheduled again. A historical record is reconciled from what it holds; only a page that could carry the change is read.
   const unanswerable = shipment.components.map((c) => noExpectation(c));
   if (shipment.components.length > 0 && unanswerable.every((n) => n != null)) return { status: "blocked", checkedAt: stamp(), checks: shipment.priorChecks ?? 0, reason: "applied_wording_missing", recheckAfter: null, components: shipment.components.map((c, i) => ({ kind: c.kind, state: "unverifiable" as ComponentState, note: unanswerable[i]! })) };
+  if (PROOF_SPEND.cacheOnly()) throw new Error("Saved-only work cannot verify a live page.");
   const blockedRead = (note: string, reason: Reason): ShipmentVerification =>
     ({ status: "blocked", checkedAt: stamp(), components: allUnknown(shipment, note), checks, reason, recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 86_400_000) : null });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
