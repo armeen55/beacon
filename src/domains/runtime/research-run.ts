@@ -337,7 +337,7 @@ const DAILY_PASS_RUNAWAY_CEILING = 200;
 type DayRow = { id: string; progress: ResearchRunProgress };
 
 /** THE DAY'S STATE BELONGS TO THE DAY, NOT TO A ROW. Both row-creating paths (the fresh daily claim and an extra pass) are born with progress {}, so the extra-sample grant, the ceiling marker, the advisory-reading
- *  receipt and the decide watermark all died the moment the pass they justified opened. Inherited here from the passes that already ran the SAME reporting day; day-stamped markers only when they name that day. */
+ *  receipt and the decide watermark all died the moment the pass they justified opened. Inherited here from the passes that already ran the SAME reporting day; daily grants remain day-bound; zero-output identities remain bound to unchanged material. */
 function carriedDayState(priors: readonly ResearchRunProgress[], day: string): ResearchRunProgress {
   const out: ResearchRunProgress = {};
   for (const p of priors) {
@@ -345,7 +345,7 @@ function carriedDayState(priors: readonly ResearchRunProgress[], day: string): R
     if (out.extraSamples == null && p.extraSamples?.day === day) out.extraSamples = p.extraSamples;
     if (out.capped == null && p.capped?.day === day) out.capped = p.capped;
     if (out.observationRetries == null && p.observationRetries?.day === day) out.observationRetries = p.observationRetries;
-    if (out.zeroOutput == null && p.zeroOutput?.day === day) out.zeroOutput = p.zeroOutput;
+    if (out.zeroOutput == null && p.zeroOutput != null) out.zeroOutput = p.zeroOutput;
     if (out.synthesisAttempted !== true && p.synthesisAttempted === true) out.synthesisAttempted = true;
     // THE DAY'S TOP-UP MEMORY TRAVELS WITH THE DAY, not with the run. Without this every extra same-day pass started from an empty attempted list, re-funded the same two failing pages and could never reach the third (Codex, 2026-08-22).
     if (out.replenish == null && p.replenish?.day === day) { const { outcomes: _earlierReceipts, ...dayMemory } = p.replenish; out.replenish = dayMemory; } if (out.evidenceOwed == null && p.evidenceOwed != null) out.evidenceOwed = p.evidenceOwed; if (out.sourceWakes == null && p.sourceWakes != null) out.sourceWakes = p.sourceWakes; /* THE DAY'S MEMORY TRAVELS, THE PASS'S RECEIPTS DO NOT (R2 residual 6, 2026-09-05): a $0 pass inherited the previous pass's receipts and, making no provider call of its own, kept them, so a run row carried one pass's ledger beside another pass's receipts and three consecutive live rows reported outcomes none of them produced. Jobs, waiting, closed and awakened are the DAY's answer and are inherited exactly as before; `outcomes` is one PASS's answer and is written only by the pass that earned it. */ /* the NEWEST prior's list wins even when it is empty: skipping an emptied list carried an older one and re-bought readings a later pass had resolved (reviewer, 2026-09-02) */ // THE OWED READINGS AND THEIR BOUGHT-TODAY STAMPS TRAVEL WITH THE DAY TOO (live 2026-09-02): a new same-day pass opened with an empty list and bought the eight readings the previous pass had already bought
@@ -374,8 +374,8 @@ async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRu
   if (run.current_phase !== "refresh_sources" || run.phase_cursor != null || Object.keys(p).length !== 0) return run;
   const previous = await repo.previous({ tenantId: run.tenant_id, excludeId: run.id });
   if (!previous || previous.cycle_key.slice(-10) === run.cycle_key.slice(-10)) return run;
-  const owed = previous.progress.evidenceOwed, wakes = previous.progress.sourceWakes;
-  return owed?.length || wakes?.length ? inheritDayState(run, owner, [{ id: previous.id, progress: { ...(owed?.length ? { evidenceOwed: owed } : {}), ...(wakes?.length ? { sourceWakes: wakes } : {}) } }]) : run;
+  const owed = previous.progress.evidenceOwed, wakes = previous.progress.sourceWakes, stop = previous.progress.zeroOutput;
+  return owed?.length || wakes?.length || stop ? inheritDayState(run, owner, [{ id: previous.id, progress: { ...(owed?.length ? { evidenceOwed: owed } : {}), ...(wakes?.length ? { sourceWakes: wakes } : {}), ...(stop ? { zeroOutput: stop } : {}) } }]) : run;
 }
 
 // ── Public operations (explicit tenant, fail-closed) ───────────────────────
