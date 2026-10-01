@@ -2,11 +2,7 @@
  * Sprint 7 Phase 7.8b-2-a (2026-04-25) — shared `.data` path resolution
  * for the runtime persistence layer.
  *
- * Two consumers:
- *   - `dotdata-json.ts` (Phase 7.8b-1): supplementary blob reads/writes.
- *   - `json-store.ts`   (Phase 7.8b-2-b): in-process-cached array stores.
- *
- * Both classify stores via `store-classification.classifyStore()` and
+ * The legacy json-store cache classifies stores via `store-classification.classifyStore()` and
  * route reads/writes to the per-tenant / singleton / global
  * destination accordingly. This shared module keeps the dispatch in
  * one place — drift between the two helpers is structurally
@@ -17,9 +13,7 @@
  *   - global                : `${name}::global`
  *   - unknown               : rejected before path construction
  *
- * The cache key is included in `ResolvedPath` even though dotdata-json
- * doesn't cache — keeping the shape stable lets json-store reuse the
- * resolution without a parallel implementation.
+ * The cache key identifies the existing json-store cache scope.
  *
  * Module-level path constants are computed at call time (via getter
  * functions, not import-time constants) so tests can `process.chdir()`

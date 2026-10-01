@@ -175,6 +175,7 @@ function evaluateNewPageBrief(
     return bad("The research that proved this page is missing is not on file, so it stays held rather than offered.");
   }
   const keys = new Set(items.map((i) => i.key));
+  if (COPY_RULES.captureUrls(proposal).some(url => !(proposal.reviewedCaptures ?? []).some(frame => frame.tenantId === proposal.tenantId && frame.captureId === frame.latestCaptureId && frame.captureVersion > 0 && frame.sourceRevision?.trim() && COPY_RULES.captureAddress(frame.url) === COPY_RULES.captureAddress(url)))) return bad("A written link lacks its exact owned destination source witness, so the page stays held.");
   if (bundle.components.some((c) => c.evidenceKeys.length === 0 || c.evidenceKeys.some((k) => !keys.has(k)))) {
     return bad("Part of this page traces back to nothing that was checked, so it stays held rather than offered.");
   }

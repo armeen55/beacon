@@ -1,4 +1,4 @@
-/** `DATA_SOURCE=supabase` implementation of `SeedDataRepository`. Route-critical tables read from Postgres; supplementary + json-store-only domains still hit disk (`readDotDataJson` / `readStore`) until migrated — same behavior as pre-cutover direct-file access, centralized here. */
+/** Canonical repository reads from Supabase; tenant methods constrain each query before reading rows. */
 import { getSupabaseAdmin } from "../supabase";
 import type { PageSnapshotLinkGraph, SeedDataRepository } from "./types";
 
@@ -266,7 +266,7 @@ export const supabaseBackend: SeedDataRepository = {
   getTrackedPrompts: async () =>
     query<TrackedPrompt>("tracked_prompts"),
 
-  // Sprint 7 Phase 7.5b Commit 1C (2026-04-25) — tenant-bound facade with push-down filters. Each method appends `.eq("tenant_id", tenantId)` (via selectScoped / queryAllPagedScoped) so Postgres can pick the tenant-prefixed indexes and we never fetch cross-tenant rows just to filter them out in JS. `buildTenantRepo` (in-memory filter) remains the file-backend pattern.
+  // Sprint 7 Phase 7.5b Commit 1C (2026-04-25) — tenant-bound facade with push-down filters. Each method appends `.eq("tenant_id", tenantId)` (via selectScoped / queryAllPagedScoped) so Postgres can pick the tenant-prefixed indexes and we never fetch cross-tenant rows just to filter them out in JS.
   forTenant(tenantId: string) {
     return {
       // Plain selects (15 rows or fewer in single-tenant production today).

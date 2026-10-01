@@ -107,8 +107,8 @@ function wordingMatch(component: VerifiableShipment["components"][number], live:
 }
 function publicationMatch(component: VerifiableShipment["components"][number], live: LiveRead): ReturnType<typeof judged> {
   const units = component.units!, target = component.target!;
-  const matches = loadOwnedPageBodies.publication.matches;
-  const key = (href: string) => { try { const address = new URL(href, live.requestedUrl); return /^https?:$/.test(address.protocol) && !address.username && !address.password ? JSON.stringify([canonicalUrlKey(address.toString()), address.port, address.search, address.hash]) : null; } catch { return null; } };
+  const matches = (unit: typeof units[number], block: LiveRead["blocks"][number]) => loadOwnedPageBodies.publication.matches(unit, block, live.requestedUrl);
+  const key = (href: string) => loadOwnedPageBodies.publication.address(href, live.requestedUrl);
   const linked = (parts: readonly LiveRead["blocks"][number][]) => component.redirectTo == null && component.anchorAfter == null || parts.some(b => b.links.some(l => key(l.href) != null && key(l.href) === key(component.redirectTo!) && l.text === copyText(component.anchorAfter!)));
   if ((/^(internal_links|internal_link_add)$/.test(component.kind) || component.redirectTo != null || component.anchorAfter != null) && (!component.redirectTo?.trim() || !component.anchorAfter?.trim() || key(component.redirectTo) == null)) return judged("unverifiable", "The publication names no exact link destination or anchor words.", "applied_wording_missing");
   const starts = live.blocks.flatMap((b, i) => units.every((u, j) => live.blocks[i + j] && matches(u, live.blocks[i + j]!)) ? [i] : []);

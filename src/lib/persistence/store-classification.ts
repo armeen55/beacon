@@ -7,7 +7,7 @@
  * One source prevents drift: a store treated as global in one place and tenant-routed in another is
  * exactly how an account reads another account's rows.
  *
- * The runtime chokepoints (json-store, dotdata-json) THROW on an unclassified store, so an unregistered
+ * The runtime cache boundary (json-store) THROWS on an unclassified store, so an unregistered
  * name surfaces as an error, never as a silent cross-account read.
  */
 

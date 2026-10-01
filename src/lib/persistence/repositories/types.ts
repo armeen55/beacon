@@ -16,11 +16,10 @@ import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-pro
 /**
  * Async read interface for route-critical and repository-routed stores.
  *
- * **Canonical runtime:** With `DATA_SOURCE=supabase`, Postgres is the read source
- * for tables that exist; file/json-store remains the durability + rollback path
- * via dual-write and `DATA_SOURCE=file`.
+ * **Canonical runtime:** Supabase owns repository persistence. Tests supply
+ * in-memory clients for the same tenant-scoped contract.
  *
- * App code: use `getRepository()` — not `readStore` / raw `readDotDataJson` —
+ * App code: use `getRepository()` — not legacy cache or disk helpers —
  * except documented exceptions (see `docs/architecture.md`).
  */
 /** Link-graph feed (2026-06-12 night shift): the lean snapshot
@@ -60,9 +59,7 @@ export interface SeedDataRepository {
   getScanFindings(): Promise<Finding[]>;
 
   /**
-   * json-store-backed operator / pages domain state — no Postgres tables yet.
-   * Both backends delegate to `readStore` so DATA_SOURCE=supabase keeps the same
-   * in-process cached array references as file mode (mutation + writeStore paths).
+   * Repository records are read from their canonical Supabase tables.
    *
    * 2026-07-21 (CORE 100K Lane O): the dead columns of this block
    * (rollout/pattern/frontier/wave/asset/outcome/truth-label reads, the
@@ -142,18 +139,12 @@ export interface TenantRepository {
   /** Scoped link-graph read — see PageSnapshotLinkGraph. */
   getPageSnapshotLinkGraphs(): Promise<PageSnapshotLinkGraph[]>;
   /**
-   * Phase A.3 (post-A.3.5) — tenant-scoped robots-state read. Supabase-
-   * backend reads `public.robots_state` filtered by tenant_id. File-
-   * backend reads via the tenant-routed `readDotDataJson("robots-state")`
-   * path (SINGLETON classification already correct; the pre-A.3
-   * flat-path file is retired by the robots-parser retrofit landing
-   * in the same step). Soft-fails to null when the migration hasn't
-   * applied yet OR when no scan has run for this tenant.
+   * Reads public.robots_state filtered by tenant_id. Returns null for a missing
+   * row or an unavailable table; other database errors remain errors.
    */
   getRobotsState(): Promise<RobotsStateFile | null>;
   /**
-   * Phase A.3 (post-A.3.5) — paired write. Dual-writes to Supabase +
-   * tenant-routed disk. FAIL-LOUD on missing table.
+   * Writes the tenant's Supabase robots state; database failures are errors.
    */
   setRobotsState(state: RobotsStateFile): Promise<void>;
   getRecommendationResponses(): Promise<RecommendationResponse[]>;

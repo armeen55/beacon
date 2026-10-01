@@ -109,7 +109,7 @@ const NewPageBriefSchema = z.object({
 
   factRequirements: z.array(z.string().min(10).max(240)).max(6),
   /** Addresses and questions copied EXACTLY from the supplied OWN PAGES and OBSERVED QUESTIONS lists. */
-  internalLinks: z.array(z.object({ url: z.string().min(1).max(300), anchor: z.string().min(2).max(120) })).max(0),
+  internalLinks: z.array(z.object({ url: z.string().min(1).max(300), anchor: z.string().min(2).max(120) })),
   faqQuestions: z.array(z.string().min(5).max(200)).max(0),
 });
 export type NewPageBrief = z.infer<typeof NewPageBriefSchema>;

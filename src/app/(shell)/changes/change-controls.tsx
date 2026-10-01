@@ -91,9 +91,13 @@ function useMarkQueueFlush(): string | null {
 /** Carry the displayed link words and destination together. */
 type CopyLink = { href: string; anchor: string; /** The page the copy lands on: the clipboard's anchor is written absolute off its host, so a pasted link resolves anywhere. */ pageUrl?: string | null } | null;
 /** The anchor words, marked inside one line of copy: `mark` wraps them, and a line that does not carry them is returned whole. */
-const withAnchor = <T,>(line: string, link: CopyLink, plain: (s: string) => T, mark: (s: string) => T): T[] => {
-  const at = link?.anchor ? line.indexOf(link.anchor) : -1;
-  return at < 0 || !link ? [plain(line)] : [plain(line.slice(0, at)), mark(link.anchor), plain(line.slice(at + link.anchor.length))];
+const withAnchor = (line: string, links: readonly { text: string; href: string }[], escape: (s: string) => string): string => {
+  let from = 0;
+  const ordered = links.map(link => ({ ...link, at: line.indexOf(link.text) })).sort((a, b) => a.at - b.at);
+  if (ordered.some((link, i) => !link.text || line.split(link.text).length !== 2 || link.at < (i ? ordered[i - 1]!.at + ordered[i - 1]!.text.length : 0))) return escape(line);
+  return ordered.map(link => {
+    const copy = `${escape(line.slice(from, link.at))}<a href="${escape(link.href)}">${escape(link.text)}</a>`; from = link.at + link.text.length; return copy;
+  }).join("") + escape(line.slice(from));
 };
 export function PublicationCopy({ text, units, link = null }: { text: string; units?: BundleComponent["units"]; link?: CopyLink }) {
   return <div onClick={(event) => event.preventDefault()} onAuxClick={(event) => event.preventDefault()} className="space-y-2 whitespace-pre-wrap break-words overflow-x-auto
@@ -106,9 +110,9 @@ export function PublicationCopy({ text, units, link = null }: { text: string; un
 export function clipboardPayload(text: string, units?: BundleComponent["units"], link: CopyLink = null): { html: string; plain: string } {
   const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
   const href = link ? operatorUiPolicy.livePageHref(link.href, link.pageUrl) : null;
-  const rich = (s: string) => withAnchor(s, href ? link : null, escape, (t) => `<a href="${escape(href!)}">${escape(t)}</a>`).join("");
+  const rich = (s: string, links?: readonly { text: string; href: string }[] | null) => withAnchor(s, links?.flatMap(l => { const url = operatorUiPolicy.livePageHref(l.href, link?.pageUrl); return url ? [{ text: l.text, href: url }] : []; }) ?? (href && link ? [{ text: link.anchor, href }] : []), escape);
   const all: NonNullable<BundleComponent["units"]> = units ?? text.split(/\n+/).filter((s) => s.trim()).map((s) => ({ kind: "paragraph" as const, text: s }));
-  const html = all.map((u) => u.kind === "paragraph" ? `<p>${rich(u.text)}</p>` : u.kind === "heading" ? `<h${u.level}>${escape(u.text)}</h${u.level}>`
+  const html = all.map((u) => u.kind === "paragraph" ? `<p>${rich(u.text, u.links)}</p>` : u.kind === "heading" ? `<h${u.level}>${escape(u.text)}</h${u.level}>`
     : u.kind === "table" ? `<table><thead><tr>${u.columns.map((cell) => `<th>${rich(cell)}</th>`).join("")}</tr></thead><tbody>${u.rows.map((row) => `<tr>${row.map((cell) => `<td>${rich(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
       : `<${u.kind === "ordered_list" ? "ol" : "ul"}>${u.items.map((item) => `<li>${rich(item)}</li>`).join("")}</${u.kind === "ordered_list" ? "ol" : "ul"}>`).join("");
   const plain = all.map((u) => u.kind === "paragraph" || u.kind === "heading" ? u.text

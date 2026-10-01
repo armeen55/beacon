@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { publicationUnits } from "./publication-units";
 import { COPY_RULES } from "./copy-sanitize";
 import type { AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
 import type { CauseFinding } from "./diagnosis";
@@ -11,13 +12,7 @@ export const EditorAcceptanceSchema = z.object({ pageFit: z.boolean(), usefulAnd
 const ReviewedCapturesSchema = z.array(z.object({ tenantId: z.string().min(1), url: z.string().url(), pageId: z.string().min(1), captureId: z.string().min(1), latestCaptureId: z.string().min(1), captureVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), sourceRevision: z.string().optional() }));
 const ReviewReceiptSchema = z.object({ scope: z.literal("whole_page").optional(), editor: EditorAcceptanceSchema.optional(), of: z.string().min(1), version: z.number().int(), claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })), materialChange: z.boolean().optional(), inputKey: z.string().min(1).optional() });
 type ReviewReceipt = Omit<z.infer<typeof ReviewReceiptSchema>, "claims"> & { claims: readonly { i: number; by: readonly string[]; entailed: boolean }[] };
-export const PublicationUnitsSchema = z.array(z.union([
-  z.object({ kind: z.literal("paragraph"), text: z.string().min(1) }),
-  z.object({ kind: z.literal("heading"), level: z.number().int().min(1).max(6), text: z.string().min(1) }),
-  z.object({ kind: z.literal("ordered_list"), items: z.array(z.string().min(1)).min(1) }),
-  z.object({ kind: z.literal("unordered_list"), items: z.array(z.string().min(1)).min(1) }),
-  z.object({ kind: z.literal("table"), columns: z.array(z.string().min(1)).min(2).max(8), rows: z.array(z.array(z.string().min(1)).min(2).max(8)).min(1).max(30) }),
-])).min(1).superRefine((units, ctx) => { for (const [i, unit] of units.entries()) if (unit.kind === "table") for (const [r, row] of unit.rows.entries()) if (row.length !== unit.columns.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [i, "rows", r], message: "table rows must match the declared columns" }); });
+export const PublicationUnitsSchema = publicationUnits;
 type PublicationUnits = z.infer<typeof PublicationUnitsSchema>;
 const PublicationTargetSchema = z.union([
   z.object({ mode: z.enum(["opening", "whole_body"]), anchorKind: z.null(), anchor: z.null() }),

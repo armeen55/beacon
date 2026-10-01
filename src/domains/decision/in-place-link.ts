@@ -1,7 +1,8 @@
 import { load } from "cheerio";
+import { createHash } from "node:crypto";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { isCurrent } from "@/domains/evidence/freshness";
-import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ChangeProposal } from "./contracts";
 import { COPY_RULES } from "./copy-sanitize";
 
@@ -16,6 +17,23 @@ export const articlePassages = (body: OwnedPageBody | null | undefined): string[
 };
 const exactBlock = (self: OwnedPageBody | null, anchor: string | null | undefined): string | null => { if (!self?.sourceCapture?.complete || typeof self.sourceCapture.mainHtml !== "string" || !self.sourceCapture.mainHtml.trim() || self.completeness !== "complete" || self.version !== "current" || !anchor) return null; const $ = load(self.sourceCapture.mainHtml), clean = (s: string) => s.replace(/\s+/g, " ").trim(), needle = clean(anchor), content = (node: Parameters<typeof $>[0]) => clean($(node).text()), hits = $("p,li,blockquote,div.wixui-rich-text").toArray().filter(node => content(node).includes(needle) && !$(node).find("p,li,blockquote,div.wixui-rich-text").toArray().some(child => content(child).includes(needle))); return hits.length === 1 && content(hits[0]!).split(needle).length === 2 ? content(hits[0]!) : null; };
 const targetFacts = (target: OwnedPageBody | null | undefined, sourceUrl: string, linkTo: string | null | undefined): Record<string, string> | null => { try { const url = new URL(linkTo ?? "", absolute(sourceUrl)).toString(); if (!linkTo || !target || target.version !== "current" || target.completeness !== "complete" || target.sourceCapture?.complete !== true || !sameAddress(url, target.url) || !sameAddress(url, target.finalUrl)) return null; const names = new Set(topicTokens(`${target.title ?? ""} ${target.h1 ?? ""}`)), seen = new Set<string>(); return Object.fromEntries(articlePassages(target).flatMap((p) => p.split(/(?<=[.!?])\s+/)).map((s) => s.replace(/\s+/g, " ").trim()).filter((s) => { const key = s.toLowerCase(); if (seen.has(key)) return false; seen.add(key); return s.length >= 35 && s.length <= 450 && topicTokens(s).filter((w) => !names.has(w)).length >= 2; }).map((s, i) => [`owned-page-target-copy-${i + 1}`, `${linkTo} says: ${s}`])); } catch { return null; } };
+function destinations(tenantId: string, sourceUrl: string, hrefs: readonly string[], bodies: ReadonlyMap<string, OwnedPageBody>, now: number, retained?: ChangeProposal["reviewedCaptures"]) {
+  try {
+    const owner = new URL(absolute(sourceUrl)), packets = [...new Set(hrefs)].map((href, i) => {
+      const url = new URL(href, owner), body = [...bodies.values()].find(body => sameAddress(url.href, body.url)), raw = targetFacts(body, sourceUrl, href), facts = raw && (i ? Object.fromEntries(Object.entries(raw).map(([key, fact]) => [key.replace("target-copy", `target-${createHash("sha256").update(url.href).digest("hex").slice(0, 16)}-copy`), fact])) : raw), captures = COPY_RULES.captureProof(body, now, retained);
+      return /^https?:$/.test(url.protocol) && !url.username && !url.password && !url.hash && url.protocol === owner.protocol && url.hostname.replace(/^www\./, "") === owner.hostname.replace(/^www\./, "") && url.port === owner.port && body?.tenantId === tenantId && sourceCurrent(body, url.href, new Date(now)) && captures.length === 1 && facts && Object.keys(facts).length ? { href: url.href, body, facts, captures } : null;
+    });
+    return packets.every(packet => packet != null) ? packets as NonNullable<typeof packets[number]>[] : null;
+  } catch { return null; }
+}
+async function readDestinations(p: ChangeProposal, now: number, bodies?: ReadonlyMap<string, OwnedPageBody>) {
+  const hrefs = [...(p.recommendedChange.kind === "existing_edit" ? [{ units: p.recommendedChange.units }] : []), ...(p.bundle?.components ?? [])].flatMap(part => (part.units ?? []).flatMap(unit => unit.kind === "paragraph" ? (unit.links ?? []).map(link => link.href) : []));
+  if (!hrefs.length) return [];
+  const site = p.recommendedChange.kind === "new_page" ? p.newPageDraft?.brief.linkSite : p.pageUrl;
+  if (typeof site !== "string" || !site.trim()) return null;
+  const read = bodies ?? await loadOwnedPageBodies(p.tenantId, hrefs, undefined, undefined, p.reviewedCaptures).catch(() => new Map()), packets = destinations(p.tenantId, site, hrefs, read, now, p.reviewedCaptures);
+  return packets && (p.recommendedChange.kind !== "new_page" || COPY_RULES.sameCaptures(p.reviewedCaptures, COPY_RULES.joinedCaptures(packets.map(packet => packet.captures)))) ? packets : null;
+}
 const linkState = (body: OwnedPageBody, paragraph: string, phrase: string, to: string): "none" | "exact" | "other" => { try { const $ = load(body.sourceCapture!.mainHtml), clean = (s: string) => s.replace(/\s+/g, " ").trim(), blocks = $("p,li,blockquote,div.wixui-rich-text").toArray().filter(node => clean($(node).text()) === paragraph && !$(node).find("p,li,blockquote,div.wixui-rich-text").toArray().some(child => clean($(child).text()) === paragraph)); if (blocks.length !== 1) return "other"; const links = $(blocks[0]!).find("a[href]").toArray(); return links.length === 0 ? "none" : links.length === 1 && clean($(links[0]!).text()) === phrase && sameAddress(new URL($(links[0]!).attr("href")!, body.url).toString(), new URL(to, body.url).toString()) ? "exact" : "other"; } catch { return "other"; } };
 function mutationPreservation(card: ChangeProposal, source: OwnedPageBody, paragraph: string, fresh: boolean): ChangeProposal | null {
   if (!fresh && !COPY_RULES.preservationPreflight(card)) return card;
@@ -48,4 +66,4 @@ function proposal(card: ChangeProposal, source: OwnedPageBody | null | undefined
   return { ...owned, pageUrl: source.url, reviewedCaptures: COPY_RULES.joinedCaptures([COPY_RULES.captureProof(source, now.getTime()), COPY_RULES.captureProof(target, now.getTime())]), status: "ready", researchOnly: false, research: undefined, obligation: undefined, assignment: undefined, semanticReview: undefined, informationGain: undefined, bundle: undefined, faults: [], limitations: [], estimatedEffortMinutes: 3, recommendedChange: edit, claims: [{ text: phrase, supportedBy: ["page-copy-in-place", other[0]] }], supportFacts: [{ id: "page-copy-in-place", fact: paragraph }, { id: other[0], fact: other[1] }], operatorSteps: [`Open the site editor on ${card.pagePath}`, `Find the exact paragraph shown under Now and select only "${phrase}"`, `Link those existing words to ${to}; leave the paragraph's wording and all other content untouched`, "Mark implemented after the exact anchor and destination are live"] };
 }
 const reason = (p: ChangeProposal, source: OwnedPageBody | null, target: OwnedPageBody | null): string | null => proposal(p, source, target, new Date()) ? null : p.recommendedChange.kind === "existing_edit" && p.reviewedCaptures?.length === 2 && source?.tenantId === p.tenantId && target?.tenantId === p.tenantId && source.contentHash === p.recommendedChange.linkSourceHash && COPY_RULES.sameCaptures(p.reviewedCaptures, COPY_RULES.joinedCaptures([COPY_RULES.captureProof(source, Date.now(), p.reviewedCaptures), COPY_RULES.captureProof(target, Date.now(), p.reviewedCaptures)])) ? "The current paragraph, anchor and destination do not establish one precise supported link placement." : "The exact current source and destination captures have not qualified this reviewed link.";
-const LINK_PLACEMENT = { exactBlock, targetFacts, proposal, reason }; export default LINK_PLACEMENT;
+const LINK_PLACEMENT = { exactBlock, targetFacts, destinations, readDestinations, proposal, reason }; export default LINK_PLACEMENT;

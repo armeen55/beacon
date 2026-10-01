@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({})); vi.mock("node:dns/promises", () => ({ lookup: async () => [{ address: "8.8.8.8", family: 4 }] }));
-const mem = vi.hoisted(() => ({ upsert: null as null | ((table: string, rows: unknown[]) => { data: unknown[] | null; error: { message: string } | null }) }));
+const mem = vi.hoisted(() => ({ upsert: null as null | ((table: string, rows: unknown[]) => { data: unknown[] | null; error: { message: string } | null }), read: null as null | ((table: string, column: string, value: string) => { data: unknown[]; error: null }) }));
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => {
     const handler = mem.upsert;
-    if (!handler) throw new Error("test: no section may reach the supabase client");
-    return { from: (table: string) => ({ upsert: (rows: unknown[]) => ({ select: async () => handler(table, rows) }) }) };},}));
-import { buildTenantRepo } from "@/lib/persistence/repositories/tenant-repo";
-import type { SeedDataRepository } from "@/lib/persistence/repositories/types";
+    if (!handler && !mem.read) throw new Error("test: no section may reach the supabase client");
+    return { from: (table: string) => ({ upsert: (rows: unknown[]) => ({ select: async () => handler!(table, rows) }), select: () => ({ eq: async (column: string, value: string) => mem.read!(table, column, value) }) }) };},}));
+import { getRepository, usesSupabase } from "@/lib/persistence/repositories";
 import type { CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
 import {
   assertRowsScopedToTenant,
@@ -18,21 +17,20 @@ import {
 } from "@/lib/persistence/dual-write";
 const TENANT = "tenant-fixture-local";
 const OTHER = "tenant-other";
-describe("buildTenantRepo behavioral isolation", () => { // ── A. buildTenantRepo facade ───────────────────────────────────────────────
+describe("canonical repository behavioral isolation", () => {
   const ALL_PROMPTS = [{ id: "p-a-1", tenant_id: "tenant-a" }, { id: "p-a-2", tenant_id: "tenant-a" }, { id: "p-c-1", tenant_id: "tenant-c" }];
   const ALL_ENTITIES = [{ id: "e-a-1", tenant_id: "tenant-a" }, { id: "e-c-1", tenant_id: "tenant-c" }];
-  const base = {
-    getTrackedPrompts: async () => ALL_PROMPTS,
-    getTrackedEntities: async () => ALL_ENTITIES,
-  } as unknown as SeedDataRepository;
   it.each([
     ["tenant-a", ["p-a-1", "p-a-2"], ["e-a-1"]],
     ["tenant-c", ["p-c-1"], ["e-c-1"]],
     ["tenant-b-empty", [], []],
-  ])("%s receives exactly its own prompts and entities", async (tenant, prompts, entities) => {
-    const repo = buildTenantRepo(base, tenant as string);
-    expect((await repo.getTrackedPrompts()).map((p) => p.id).sort()).toEqual(prompts);
-    expect((await repo.getTrackedEntities()).map((e) => e.id).sort()).toEqual(entities);
+  ].flatMap(row => [undefined, "file", "supabase"].map(setting => [...row, setting] as const)))("%s receives its own prompts and entities through canonical SQL", async (tenant, prompts, entities, setting) => {
+    const held = process.env.DATA_SOURCE; mem.read = (table, column, value) => { expect([column, value]).toEqual(["tenant_id", tenant]); return { data: (table === "tracked_prompts" ? ALL_PROMPTS : table === "tracked_entities" ? ALL_ENTITIES : []).filter(row => row.tenant_id === value), error: null }; };
+    try {
+      if (setting === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = setting as string;
+      const repo = getRepository().forTenant(tenant as string);
+      expect((await repo.getTrackedPrompts()).map(p => p.id).sort()).toEqual(prompts); expect((await repo.getTrackedEntities()).map(e => e.id).sort()).toEqual(entities);
+    } finally { mem.read = null; if (held === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = held; }
   });
 });
 describe("dual-write tenant validation (fires before any I/O)", () => { // ── B. dual-write validation layer ──────────────────────────────────────────
@@ -80,23 +78,16 @@ describe("a canonical write that did not land never reads as done", () => {
     for (const [failure, expected] of [["registry", ["registry"]], ["snapshot", ["registry", "snapshot"]], ["inventory", ["registry", "snapshot", "inventory"]]] as const) {
       phase = failure; writes.length = 0; const out = await runCrawlBatch({ tenantId: TENANT, deps }); expect([out.status, out.crawled, out.complete, inventoried, saved, writes]).toEqual(["in_progress", 0, false, false, initial, expected]); }
     phase = "ok"; writes.length = 0; const done = await runCrawlBatch({ tenantId: TENANT, deps }); expect([done.status, done.crawled, done.complete, inventoried, saved.pages_crawled, fetches, writes]).toEqual(["complete", 1, true, true, 1, 4, ["registry", "snapshot", "inventory"]]); });});
-describe("an unset DATA_SOURCE means Supabase, in every module that asks", () => {
-  it("answers Supabase when nothing is set, and files only on an explicit ask", async () => {
-    const { usesSupabase } = await import("@/lib/persistence/repositories"); const held = process.env.DATA_SOURCE;
-    try {
-      delete process.env.DATA_SOURCE;
-      expect(usesSupabase()).toBe(true);
-      let asked = false; // And the branch that used to disagree: the merge reads the repository rather than trusting empty disk.
-      vi.doMock("@/lib/persistence/repositories", () => ({
-        usesSupabase, getRepository: () => ({ forTenant: () => ({ getRecommendationResponses: async () => { asked = true; return []; } }) }) }));
-      vi.resetModules();
-      const store = await import("@/domains/evidence/product/recommendation-response-store"); await store.getRecommendationResponses().catch(() => []);
-      expect(asked).toBe(true);
-      process.env.DATA_SOURCE = "file";
-      expect(usesSupabase()).toBe(false);
-      process.env.DATA_SOURCE = "supabase";
-      expect(usesSupabase()).toBe(true);
-    } finally { if (held === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = held; vi.doUnmock("@/lib/persistence/repositories"); vi.resetModules(); }});});
+describe("canonical feedback persistence", () => {
+  it("reads canonical responses when the disk cache is empty", async () => {
+    const responses = [{ recId: "reader-task", status: "dismissed", respondedAt: "2026-09-30T00:00:00Z", deferUntil: null }];
+    vi.doMock("@/lib/persistence/repositories", () => ({ usesSupabase,
+      getRepository: () => ({ forTenant: () => ({ getRecommendationResponses: async () => responses }) }) }));
+    vi.resetModules();
+    try { const store = await import("@/domains/evidence/product/recommendation-response-store"); expect(await store.getRecommendationResponses()).toEqual(responses); }
+    finally { vi.doUnmock("@/lib/persistence/repositories"); vi.resetModules(); }
+  });
+});
 describe("Tier A sync* helpers stay tenant-wired", () => {
   it("runtime: a representative Tier A helper rejects a cross-tenant row and an empty tenantId", async () => {
     await expect(syncPages([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncPages>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);
