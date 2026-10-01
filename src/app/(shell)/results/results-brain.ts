@@ -1,5 +1,4 @@
-/** results-brain - WHAT BEACON BELIEVES ABOUT EACH KIND OF WORK ON THIS SITE, derived once, deterministically, from the shipments the surface already holds. Results used to be a ledger wearing a header: "6 wins banked" over a strip saying no reading had been verified, both true under two rules sharing one label. This is the ONE argument the page makes, in four layers: the belief, the field of thoughts, the evidence behind a selected thought, and what is still owed. PURE: no clock reads, no prose from a model, no I/O; hand it the same shipments and it says the same thing. ONE CLASSIFICATION: every row's state comes from RESULT_LINES.rowState, the same rule the ledger below prints, so the
- * belief and the list reconcile by construction rather than by a test. */
+/** Derive Results beliefs and owed work purely from saved shipments and their canonical row states. */
 
 import { learningFromShipments, isMature, signatureOfShipment, treatmentLearning, type TreatmentGroup } from "@/domains/measurement";
 import { landsLabel, type ShipmentPresentation } from "./results-presentation";
@@ -9,11 +8,8 @@ import { pageLabel } from "../changes/types";
 const { aiStory, betOf, causeWords, fundingFor, fundingLine, groupFor, happenedLine, isRetired, judgedOnAi, learningRowOf, liftLabel, liveConfirmed, rawMoveOf, rowState, stateWord } = RESULT_LINES; // the row the funding door learns from, the bet it files under and the record that answers for it are ONE spelling, shared with the rows below (results-lines)
 type ResultState = ReturnType<typeof rowState>;
 type Metric = ShipmentPresentation["read"]["metric"];
-/** THE CONFIDENCE CONTRACT, STATED AND DESCRIPTIVE (operator, 2026-09-01): no magic five, and no probability either. A fair-coin
- *  sign test was printed here for a day; it was one-sided after the direction had been chosen from the data, and these reads are one
- *  site's own pages sharing dates, families and algorithm weather, never independent throws. So the Brain says what it can defend: how
- *  many verified reads there are, how many agree, and that a small site-specific sample is consistent, not proven. A record is
- *  called consistent from four verified reads with at most one in five pointing the other way; under four it is an early signal. */
+/** Four verified reads with at most one in five dissenting are consistent, not proof; fewer are an early signal.
+ * These site-specific reads are not independent trials, so no probability is claimed. */
 const CONSISTENT_MIN = 4;
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const plural = (n: number, one: string, many = `${one}s`): string => `${num(n)} ${n === 1 ? one : many}`;
@@ -173,11 +169,14 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   const ahead = recent.filter((p) => direction(p) === "ahead").length, behind = recent.filter((p) => direction(p) === "behind").length, hist = recent.filter((p) => HISTORICAL.has(rowState(p))).length;
   const split = [[ahead, "ahead"], [behind, "behind"], [recent.length - ahead - behind, "unclear"]].filter(([n]) => (n as number) > 0).map(([n, w]) => `${n} ${w}`).join(", ");
   const changed = recent.length === 0 ? null : `${moved.length > 0 ? `${moved.join("; ")}. ` : "No belief moved in the last two weeks. "}${plural(recent.length, "read")} finished in that time: ${split}${hist === recent.length ? ", all of them historical" : hist > 0 ? `, ${hist} of them historical` : ""}.`;
-  // THE FACTS BEHIND THE LIVE CHECK, said as facts: a page whose live copy differs from the approved words, and a page that could not be read.
-  const differs = shipments.filter((p) => p.implementedAt != null && p.verification?.status === "differs" && !isRetired(p)), unread = shipments.filter((p) => p.verification?.status === "blocked" && p.verification.recheckAfter != null).length, lands = soonest ? landsLabel(soonest, now) ?? "lands soon" : null;
+  // Current checks distinguish deferred live verification from an actual unreadable page.
+  const differs = shipments.filter((p) => p.implementedAt != null && p.verification?.status === "differs" && !isRetired(p)), lands = soonest ? landsLabel(soonest, now) ?? "lands soon" : null;
+  const rechecks = shipments.filter((p) => p.implementedAt != null && !isRetired(p) && p.verification?.status === "blocked" && p.verification.recheckAfter != null);
+  const deferred = rechecks.filter((p) => p.verification?.reason === "stale_reading").length, unread = rechecks.filter((p) => p.verification?.reason === "page_unreachable" || p.verification?.reason === "rendered_content_gap").length;
   const watching = [...(counts.liveConfirmed > 0 ? [`${plural(counts.liveConfirmed, "change")} confirmed on the live page, whose reads decide the first verified pattern.`] : []),
     ...(lands ? [`The next read ${lands}.`] : []),
     ...(differs.length > 0 ? [`${plural(differs.length, "marked-done change")} ${differs.length === 1 ? "does" : "do"} not yet show on the live page as approved: check ${differs.length === 1 ? "it is" : "they are"} published; ${differs.length === 1 ? "it is" : "they are"} read again after that.`] : []),
+    ...(deferred > 0 ? [`${plural(deferred, "change")} ${deferred === 1 ? "needs" : "need"} a current live check; earlier receipts remain history.`] : []),
     ...(unread > 0 ? [`${plural(unread, "page")} could not be read on the last check and ${unread === 1 ? "is" : "are"} retried on the next pass.`] : []),
     ...(unconfirmed > 0 ? [`${plural(unconfirmed, "change")} recorded and not yet confirmed live: their numbers are context only.`] : [])];
   // ALWAYS A NEXT STEP, AND AN IMPERATIVE, OFF ACTIONABLE STATE (truth review, 2026-09-01): a kind of work that keeps finishing behind is read before more of it ships; then
