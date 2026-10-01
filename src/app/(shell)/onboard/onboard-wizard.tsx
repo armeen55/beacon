@@ -86,7 +86,7 @@ function WebsiteStep({ domain }: { domain: string }) {
   const [url, setUrl] = useState(domain);
   return (
     <form onSubmit={(e) => { e.preventDefault(); run(() => submitWebsiteAction(url), () => router.push("/onboard?step=2")); }} className="space-y-4" noValidate>
-      <input autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="acme.com" inputMode="url" className={FIELD} />
+      <Labeled label="Website address"><input autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="acme.com" inputMode="url" className={FIELD} /></Labeled>
       {error ? <p className="text-[13px] text-rose-600" role="alert">{error}</p> : <p className="text-[12px] text-muted-foreground">Just the address is enough. The rest is worked out from your site.</p>}
       <button type="submit" disabled={pending} className={BTN}>{pending ? "Reading your site. This takes about half a minute." : "Read your site"}</button>
     </form>
