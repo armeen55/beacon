@@ -2,7 +2,6 @@ import "server-only";
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { currentTenantId } from "@/lib/tenant-context";
-import { readStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 import type { ShipmentObjective } from "../shipment-ai-outcome";
 import type { GscProofConfidence, GscProofVerdict, MeasurementState, ProofBaseline, ProofWindowResult, TreatmentSignature } from "./types";
@@ -11,7 +10,7 @@ import type { ControlReceipt } from "./contamination";
 import { settledVerdictOf } from "./measure-lifecycle";
 import { SHIPMENT_PROOF } from "./shipment-proof";
 
-const TABLE = "shipped_change_proof", STORE = "proof-gsc-ledger";
+const TABLE = "shipped_change_proof";
 /** What the live check found. FROZEN SHAPE, written only through `recordVerification`; `components` names
  *  each piece so a partly-applied bundle reads as partly applied. A click never stands in for a reading, and the
  *  retired `operator_confirmed` label it once stood in as is gone: no row in the ledger carries it. */
@@ -235,35 +234,21 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
   };
 }
 
-async function readFile(): Promise<ShippedChangeRecord[]> {
-  try { return (await readStore<ShippedChangeRecord>(STORE)) ?? []; }
-  catch (err) { log.warn("shipped-change-store: file ledger read failed; treating as empty", { store: STORE, error: err instanceof Error ? err.message : String(err) }); return []; }
-}
-
-
 /** All shipped-change records for the ambient tenant, newest ship first. Request-cached. */
 export const loadShippedChanges = cache(loadShippedChangesUncached);
 
 async function loadShippedChangesUncached(): Promise<ShippedChangeRecord[]> {
-  let admin;
-  try { admin = getSupabaseAdmin(); } catch { return sortNewest(await readFile()); }
-  let tid: string;
-  try { tid = await currentTenantId(); } catch (err) {
-    log.warn("shipped-change-store: tenant resolve failed; ledger reads as empty", { store: STORE, error: err instanceof Error ? err.message : String(err) });
-    return [];
-  }
-  return queryTenantLedger(admin, tid);
+  return loadShippedChangesForTenant(await currentTenantId());
 }
 /** Tenant-EXPLICIT ledger read (background/after() scope where ambient is wrong). */
 export async function loadShippedChangesForTenant(tenantId: string): Promise<ShippedChangeRecord[]> {
   if (!tenantId) return [];
-  return queryTenantLedger(getSupabaseAdmin(), tenantId, async () => { throw new Error("The tenant Shipment ledger is unavailable"); });
+  return queryTenantLedger(getSupabaseAdmin(), tenantId);
 }
 
 async function queryTenantLedger(
   admin: ReturnType<typeof getSupabaseAdmin>,
   tid: string,
-  fallback: () => Promise<ShippedChangeRecord[]> = readFile,
 ): Promise<ShippedChangeRecord[]> {
   const rows: LedgerRow[] = [], pageSize = 500;
   let after: string | null = null;
@@ -271,8 +256,7 @@ async function queryTenantLedger(
     let query = admin.from(TABLE).select("*").eq("tenant_id", tid).order("id", { ascending: true }).limit(pageSize);
     if (after !== null) query = query.gt("id", after);
     const { data, error } = await query;
-    if (error != null || data == null) {
-      if (after === null && isUndefinedTableError(error)) return sortNewest(await fallback());
+    if (error != null || !Array.isArray(data) || data.some(row => !row || typeof row !== "object" || Array.isArray(row) || row.tenant_id !== tid || typeof row.id !== "string" || !row.id.trim())) {
       throw new Error(`[shipped-change-store] ledger read failed for ${tid}: ${error?.message ?? "missing response"}`);
     }
     const page = data as LedgerRow[];

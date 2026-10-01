@@ -16,11 +16,9 @@ import "server-only";
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { readStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 
 const TABLE = "refresh_runs";
-const STORE = "refresh-runs";
 
 /** The read sources a refresh can pull. */
 export type RefreshSource = "gsc" | "ga4" | "clarity";
@@ -65,23 +63,6 @@ export type RefreshRunRow = {
   next_retry_at: string | null;
   created_at: string;
 };
-
-type FileRow = RefreshRunRow;
-
-function isMissingTable(error: unknown): boolean {
-  if (error == null || typeof error !== "object") return false;
-  const e = error as { code?: unknown; message?: unknown };
-  if (
-    typeof e.code === "string" &&
-    (e.code === "42P01" || e.code === "PGRST205" || e.code === "PGRST204")
-  ) {
-    return true;
-  }
-  return (
-    typeof e.message === "string" &&
-    /schema cache|could not find the table/i.test(e.message)
-  );
-}
 
 function durationMs(startedAt: string, finishedAt: string): number {
   const ms = Date.parse(finishedAt) - Date.parse(startedAt);
@@ -213,14 +194,6 @@ export function deriveSyncFailureEscalation(
   return { escalate: streak >= minStreak, since, streak, daysStale };
 }
 
-async function readFile(): Promise<FileRow[]> {
-  try {
-    return (await readStore<FileRow>(STORE, [])) ?? [];
-  } catch {
-    return [];
-  }
-}
-
 /**
  * Record one source refresh. FAIL-SOFT BY CONTRACT: never throws. A ledger
  * write failure (bad env, missing table pre-migration, a Supabase outage) must
@@ -291,8 +264,7 @@ function mapRow(r: Record<string, unknown>): RefreshRunRow {
   };
 }
 
-/** Most recent refresh rows for a tenant (optionally one source), newest first.
- *  Fail-soft -> []. Supabase first, file mirror fallback. */
+/** Most recent SQL refresh rows for a tenant; strict callers refuse unavailable history. */
 export async function listRecentRefreshRuns(
   tenantId: string,
   opts: { source?: RefreshSource; limit?: number; strict?: boolean } = {},
@@ -303,7 +275,7 @@ export async function listRecentRefreshRuns(
     admin = getSupabaseAdmin();
   } catch {
     if (opts.strict) throw new Error("refresh history unavailable");
-    return filterFileRows(await readFile(), tenantId, opts.source, limit);
+    return [];
   }
   try {
     let q = admin
@@ -314,38 +286,23 @@ export async function listRecentRefreshRuns(
       .limit(limit);
     if (opts.source != null) q = q.eq("source", opts.source);
     const { data, error } = await q;
-    if (error != null) {
+    if (error != null || !Array.isArray(data) || data.some(row => !row || typeof row !== "object" || Array.isArray(row) || row.tenant_id !== tenantId || typeof row.id !== "string" || !row.id.trim())) {
       if (opts.strict) throw new Error("refresh history unavailable");
-      if (isMissingTable(error)) {
-        return filterFileRows(await readFile(), tenantId, opts.source, limit);
-      }
       log.warn("[refresh-runs-store] list failed", {
         tenantId,
-        error: error.message ?? String(error),
+        error: error?.message ?? "malformed refresh history",
       });
       return [];
     }
-    return ((data ?? []) as Array<Record<string, unknown>>).map(mapRow);
+    return (data as Array<Record<string, unknown>>).map(mapRow);
   } catch (e) {
     if (opts.strict) throw e;
     log.warn("[refresh-runs-store] list threw", {
       tenantId,
       error: e instanceof Error ? e.message : String(e),
     });
-    return filterFileRows(await readFile(), tenantId, opts.source, limit);
+    return [];
   }
-}
-
-function filterFileRows(
-  rows: FileRow[],
-  tenantId: string,
-  source: RefreshSource | undefined,
-  limit: number,
-): RefreshRunRow[] {
-  return rows
-    .filter((r) => r.tenant_id === tenantId && (source == null || r.source === source))
-    .sort((a, b) => b.started_at.localeCompare(a.started_at))
-    .slice(0, limit);
 }
 
 /** The latest row per source for one tenant - what the /settings/connectors

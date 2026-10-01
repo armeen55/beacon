@@ -374,7 +374,7 @@ async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRu
   if (run.current_phase !== "refresh_sources" || run.phase_cursor != null || Object.keys(p).length !== 0) return run;
   const previous = await repo.previous({ tenantId: run.tenant_id, excludeId: run.id });
   if (!previous || previous.cycle_key.slice(-10) === run.cycle_key.slice(-10)) return run;
-  const owed = previous.progress.evidenceOwed?.filter((n) => n.kind === "page_source" && n.unlocks?.beforeMicros === true && !!(n.proposalId || n.unlocks.proposalId) && !!n.workKey?.trim()), wakes = previous.progress.sourceWakes;
+  const owed = previous.progress.evidenceOwed, wakes = previous.progress.sourceWakes;
   return owed?.length || wakes?.length ? inheritDayState(run, owner, [{ id: previous.id, progress: { ...(owed?.length ? { evidenceOwed: owed } : {}), ...(wakes?.length ? { sourceWakes: wakes } : {}) } }]) : run;
 }
 

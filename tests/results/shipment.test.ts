@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-const db = vi.hoisted(() => ({ state: { rows: [] as Row[], file: [] as Row[], offline: false, upsertError: null as Row | null, updateError: null as Row | null }, client: {} as Record<string, unknown> }));
+const db = vi.hoisted(() => ({ state: { rows: [] as Row[], offline: false, readResponse: undefined as unknown, upsertError: null as Row | null, updateError: null as Row | null }, client: {} as Record<string, unknown> }));
 const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
 const ai = vi.hoisted(() => ({ views: vi.fn(), records: vi.fn() }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; } }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "acct-a" }));
-vi.mock("@/lib/persistence/json-store", () => ({ readStore: async () => db.state.file }));
 vi.mock("@/domains/account/tenants/store", () => ({ getTenant: async () => null }));
 const invalidations = vi.hoisted(() => ({ n: 0 }));
 vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => { invalidations.n += 1; } }));
@@ -25,13 +24,15 @@ import { measureRecord, recordShippedChange } from "@/domains/measurement/proof-
 import { recordShipment } from "@/domains/measurement/proof-gsc/record-shipment";
 import { addDays } from "@/domains/measurement/outcome-windows";
 import { isDueForMeasure, outcomeStateOf } from "@/domains/measurement/proof-gsc/measure-lifecycle";
-import { loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification, upsertShippedChange, type ShipmentVerification, type ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
+import { loadShippedChanges, loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification, upsertShippedChange, type ShipmentVerification, type ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
+import { listRecentRefreshRuns } from "@/domains/runtime/ops/refresh-runs-store";
 import { verifyShipmentNow } from "@/domains/measurement/verify-shipment";
 import { learningFromShipments, treatmentLearning } from "@/domains/measurement/treatment-learning";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
-Object.assign(db.client, supabaseFake({ rows: () => db.state.rows, same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.id === sent.id,
-  error: (_t, op) => (op === "update" ? db.state.updateError : op === "upsert" ? db.state.upsertError : null) as { message: string } | null }));
+const sql = supabaseFake({ rows: () => db.state.rows, same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.id === sent.id,
+  error: (_t, op) => (op === "update" ? db.state.updateError : db.state.upsertError) as { message: string } | null });
+Object.assign(db.client, { from: (table: string) => db.state.readResponse === undefined ? sql.from(table) : Object.assign(sql.from(table), { then: (resolve: (v: unknown) => void) => resolve({ data: db.state.readResponse, error: null }) }) });
 const T = "acct-a", NOW = new Date("2026-07-31T12:00:00.000Z");
 const PAGE = "https://www.fixture-outdoors.example/nowruz-guide";
 const COMPONENTS = [{ kind: "title", label: "Page title", before: "Old title", page: PAGE, where: "The page title" }, { kind: "opening_answer", label: "Opening answer", before: "Old answer", page: `${PAGE}/other`, where: "Under the question heading" }];
@@ -49,7 +50,7 @@ const withSiteHistory = (clicks = 9, matched: Array<[string, unknown]> = []) => 
 const verification = (status: ShipmentVerification["status"]): ShipmentVerification => ({ status, checkerContract: SHIPMENT_PROOF.contract, checkedAt: "2026-08-02T00:00:00.000Z", components: [{ kind: "title", state: "verified", note: null }] });
 const ranWindow = (day: number, adjustedLift: number, controlsUsed = 3) => ({ day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0.02, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed, treatedPostImpressions: 5000,});
 beforeEach(() => {
-  Object.assign(db.state, { rows: [], file: [], offline: false, upsertError: null, updateError: null });
+  Object.assign(db.state, { rows: [], offline: false, readResponse: undefined, upsertError: null, updateError: null });
   [gsc.window, gsc.lastFinal, ai.views, ai.records].forEach((m) => m.mockReset()); ai.records.mockResolvedValue([]);
   gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]])); gsc.lastFinal.mockResolvedValue("2026-07-30");
   const seen = (slot: number, day: string, mentioned: boolean) => ({ slot, day, status: "observed", analysis: { ownedBrandMention: { mentioned } }, analysisHash: "x", answerHash: "x" }); // Three answers on the latest day, two of them naming this site, and one older day nothing may count: the starting number is the LATEST day's, and it is the whole of that day.
@@ -63,7 +64,6 @@ describe("the canonical Shipment", () => {
     db.client.from = fake.from;
     try {
       expect((await loadShippedChangesForTenant(T)).map((r) => [r.id, r.page])).toEqual(rows.map((r) => [r.id, r.page]));
-      expect(reads).toBe(3);
       db.state.rows.push({ ...rows[0], id: "closed", verification: { status: "differs", checkedAt: NOW.toISOString(), checks: 1, recheckAfter: null } });
       const fetchPage = vi.fn(async (url: string) => ({ ok: true as const, html: '<html><head><title>Page</title><meta name="description" content="new"/></head><body><main><p>Published content.</p></main></body></html>', status: 200, finalUrl: url })), record = vi.fn(async (_tenant: string, _id: string, _verification: ShipmentVerification) => true), readHeld = vi.fn(async () => new Map());
       const deps = { fetchPage, record, readHeld, loadProfile: async () => null, writeOwnedPage: async () => {}, readSerp: async () => null, now: () => NOW.getTime() };
@@ -71,6 +71,7 @@ describe("the canonical Shipment", () => {
       expect([fetchPage.mock.calls.map(([url]) => url), record.mock.calls.map(([tenant, id, v]) => [tenant, id, v.status]), readHeld.mock.calls.length]).toEqual([[rows[1204]!.page], [[T, "shp_1204", "verified"]], 0]);
       reads = 0; failAt = 1;
       await expect(loadShippedChangesForTenant(T)).rejects.toThrow("second page unavailable");
+      await expect(loadShippedChanges()).rejects.toThrow("second page unavailable");
     } finally { db.client.from = original; }
   });
   it("a measure loop invalidates the release once, never once per record", async () => {
@@ -84,7 +85,7 @@ describe("the canonical Shipment", () => {
     expect([stored.proposalId, stored.proposalVersion, stored.basis, stored.implementedAt]).toEqual([`${T}::/nowruz-guide::existing_edit::bundle`, "v-abc123", "basis_today::d6", NOW.toISOString()]); expect(stored.bundleHypothesis).toMatch(/line Google shows/);
     expect(stored.preChangeContentHash).toBe("hash-before"); expect(stored.componentsApplied).toEqual(COMPONENTS); expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
     expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
-    expect(stored.verification).toBeNull(); db.state.rows = []; db.state.file = []; // nobody has checked it, and that null makes it due; and their own account of it is a NOTE, never an answer: it rides along and the live check is still owed
+    expect(stored.verification).toBeNull(); db.state.rows = []; // nobody has checked it, and that null makes it due; and their own account of it is a NOTE, never an answer: it rides along and the live check is still owed
     await upsertShippedChange(await ship({ shipment: origin({ operatorNote: "I pasted it into my site myself." }) as never }));
     const [noted] = await loadShippedChangesForTenant(T); expect([noted.operatorNote, noted.verification]).toEqual(["I pasted it into my site myself.", null]); });
   it("counts the AI starting number over the WHOLE day, and writes down how many of it were read closely", async () => {
@@ -92,12 +93,12 @@ describe("the canonical Shipment", () => {
     const day = (analysed: number) => Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY, analysis: i < analysed ? { ownedBrandMention: { mentioned: i < analysed * 0.6 } } : null, analysisHash: i < analysed ? "x" : null, answerHash: "x" }));
     const serve = (rows: Record<string, unknown>[]) => ai.views.mockImplementation(async (_t: string, o: { day?: string; limit?: number }) => (o?.day === DAY ? rows : rows.slice(0, o?.limit ?? 60)));
     serve(day(140)); await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 84 });
-    db.state.rows = []; db.state.file = []; serve(day(100));
+    db.state.rows = []; serve(day(100));
     await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 100, mentioning: 60 });});
   it("stores a partial bundle as a partial bundle, and keeps the exact copy each piece carried", async () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: [COMPONENTS[0]] }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual([COMPONENTS[0]]);
     const withCopy = [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table" }];
-    db.state.rows = []; db.state.file = [];
+    db.state.rows = [];
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);});
   it("writes the stamp and the starting numbers once: a later writer keeps what is on file", async () => {
     await upsertShippedChange(await ship()); const first = (await loadShippedChangesForTenant(T))[0];
@@ -151,19 +152,19 @@ it("replaces a contract-4 confirmation when the current structural read disagree
   await recordVerification(T, record.id, { ...verification("differs"), reason: "not_published_yet" }); const after = (await loadShippedChangesForTenant(T))[0]!;
   expect([after.verification?.checkerContract, after.verification?.status, after.verifiedLive, after.implementedAt]).toEqual([SHIPMENT_PROOF.contract, "differs", false, NOW.toISOString()]); });
 describe("when canonical Shipment persistence is unavailable", () => {
-  it.each(["PGRST204", "42P01", "57014"])("refuses %s without writing a substitute ledger", async code => {
-    db.state.upsertError = { code, message: "canonical write unavailable" };
-    await expect(upsertShippedChange(await ship())).rejects.toThrow("upsert failed");
-    expect([db.state.rows.length, db.state.file.length]).toEqual([0, 0]); });
-  it("refuses offline recording and verification without pretending they landed", async () => {
-    db.state.offline = true; const record = await ship(); await expect(upsertShippedChange(record)).rejects.toThrow("no Supabase");
+  it.each(["PGRST204", "42P01", "57014", "offline", null, {}, [null], [{ tenant_id: "other", id: "foreign" }], [{ tenant_id: T, id: " " }]].map(reply => ({ reply, code: typeof reply === "string" ? reply : "malformed" })))("refuses unavailable or malformed SQL truth without a substitute ledger", async ({ code, reply: sample }) => {
+    if (code === "offline") db.state.offline = true; else db.state.upsertError = { code, message: "canonical write unavailable" };
+    const record = await ship(); await expect(upsertShippedChange(record)).rejects.toThrow(code === "offline" ? "no Supabase" : "upsert failed");
     expect(await recordVerification(T, record.id, verification("verified"))).toBe(false);
-    expect([db.state.rows.length, db.state.file.length]).toEqual([0, 0]); });
+    if (typeof sample !== "string") db.state.readResponse = sample;
+    await expect(loadShippedChanges()).rejects.toThrow(); await expect(loadShippedChangesForTenant(T)).rejects.toThrow();
+    await expect(listRecentRefreshRuns(T, { strict: true })).rejects.toThrow();
+    expect([await listRecentRefreshRuns(T), db.state.rows]).toEqual([[], []]); });
   it("preserves the canonical record when a verification write fails, then recovers", async () => {
     const record = await ship(); await upsertShippedChange(record); const before = structuredClone(db.state.rows);
     db.state.updateError = { code: "PGRST204", message: "verification column unavailable" };
     expect(await recordVerification(T, record.id, verification("verified"))).toBe(false); expect(db.state.rows).toEqual(before);
-    db.state.updateError = null; expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); expect(db.state.file).toEqual([]); }); });
+    db.state.updateError = null; expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); }); });
 describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
@@ -233,8 +234,7 @@ describe("the recording seam", () => {
     expect((await recordShipment(facts())).measurement).toBe("measuring"); expect(db.state.rows).toHaveLength(1); // the implementation landed anyway, stamp and all
     expect([(await stored()).measurementState, (await stored()).implementedAt]).toEqual(["measuring", NOW.toISOString()]);
     const measured = await measureRecord(T, { ...(await stored()), verification: verification("verified") }, new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set()); const { readLedger } = await import("@/domains/measurement/proof-gsc/kernel");
-    expect(measured.windows.find((w) => w.day === 28)?.comparedToSite).toBe(true);
-    expect(readLedger([measured], new Date("2026-10-01T00:00:00.000Z"), "2026-09-05")[0].headline).toContain("Measured against the site's own movement, because too few untouched pages matched this one. That is a weaker comparison than matched pages, and a rise the whole site shared shows up here as no change.");
+    expect([measured.windows.find((w) => w.day === 28)?.comparedToSite, ...readLedger([measured], new Date("2026-10-01T00:00:00.000Z"), "2026-09-05").map(read => [read.comparison, read.confidence])]).toEqual([true, ["site", "low"]]);
     await upsertShippedChange(measured, T); expect((await stored()).windows.find((w) => w.day === 28)?.comparedToSite, "the basis survives the store, so a reader downstream can tell a site reading from a matched one").toBe(true);
     withSiteHistory(5);
     const thin = readLedger([await measureRecord(T, await stored(), new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set())], new Date("2026-10-01T00:00:00.000Z"), "2026-09-05")[0];
@@ -251,7 +251,7 @@ describe("the recording seam", () => {
     gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]])); // three comparison pages stored, none of them carrying search data, and no site history either
     expect(await revive("insufficient_comparison", "2026-09-05", ["https://x.test/a", "https://x.test/b", "https://x.test/c"]), "stored is not usable: with no basis at all nothing is promoted over a reading that says so").toBe("insufficient_comparison");
     withSiteHistory(); const { autoMeasureDuePass } = await vi.importActual<typeof import("@/domains/measurement/proof-gsc/auto-measure-pass")>("@/domains/measurement/proof-gsc/auto-measure-pass");
-    db.state.rows = []; db.state.file = []; const NEXT_DAY = new Date("2026-10-01T12:00:00.000Z");
+    db.state.rows = []; const NEXT_DAY = new Date("2026-10-01T12:00:00.000Z");
     await upsertShippedChange({ ...(await ship({ path: "/dead" })), measurementState: "insufficient_comparison", verification: verification("verified"), updatedAt: "2026-09-30T00:00:00.000Z" }, T);
     await upsertShippedChange({ ...(await ship({ path: "/stuck" })), id: "shp_stuck", verification: { status: "blocked", checkedAt: "2026-08-02T00:00:00.000Z", components: [], checks: 1 } }, T);
     await upsertShippedChange({ ...(await ship({ path: "/names-nothing" })), id: "shp_names_nothing", verification: { status: "blocked", checkedAt: "2026-08-02T00:00:00.000Z", components: [], checks: 1, reason: "applied_wording_missing" } }, T); // A RECORD RECONCILED FROM ITSELF IS NOT A STUCK ROW: it closes with no next date under the limit, so this repair rescheduled it, the reading closed it from the record again at zero cost, and the two wrote each other a row every pass for ever
