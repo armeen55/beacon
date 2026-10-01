@@ -40,8 +40,6 @@ export type OwnedPageBody = {
   newestAt?: string | null;
 };
 
-/** Bound one query, then page wider asks. */
-const MAX_URLS = 7;
 const MAX_PAGE_CHARS = 48_000;
 const CRAWL_CARDS = 20;
 const CRAWL_BODY_TEXT_CHARS = 100_000;
@@ -172,30 +170,32 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[], miss
   const seen = new Set<string>(), asked: string[] = [];
   for (const u of urls ?? []) { const s = typeof u === "string" ? u.trim() : "", k = s ? canonicalUrlKey(s) : ""; if (k && !seen.has(k)) { seen.add(k); asked.push(s); } }
   if (!tenantId?.trim() || asked.length === 0) return out;
-  const wanted = new Set(asked.map(canonicalUrlKey).filter(Boolean));
-  const captures = new Map<string, Row[]>();
-  const failed = new Set<string>();
-  for (let at = 0; at < asked.length; at += MAX_URLS) {
-    const slice = asked.slice(at, at + MAX_URLS), pinsFor = (u: string) => [...new Set(retained.filter(c => canonicalUrlKey(c.url) === canonicalUrlKey(u)).map(c => c.captureId))].sort();
-    const readKey = (u: string) => JSON.stringify([tenantId, variantsOf([u]).sort(), ...(pinsFor(u).length ? [pinsFor(u)] : [])]), fresh = slice.filter(u => !reuse?.has(readKey(u)));
-    const rows: PageSnapshot[] = []; // Reuse exact selected packets and typed misses within this one manifest, never across passes.
-    for (const u of slice) { const held = reuse?.get(readKey(u)); if (held === "read_failed") failed.add(canonicalUrlKey(u)); else if (Array.isArray(held)) rows.push(...held); }
+  const packets = reuse ?? new Map<string, readonly PageSnapshot[] | "no_capture" | "read_failed">();
+  const pinsFor = (u: string) => [...new Set(retained.filter(c => canonicalUrlKey(c.url) === canonicalUrlKey(u)).map(c => c.captureId))].sort();
+  const readKey = (u: string) => JSON.stringify([tenantId, variantsOf([u]).sort(), ...(pinsFor(u).length ? [pinsFor(u)] : [])]), fresh = asked.filter(u => !packets.has(readKey(u)));
+  for (let at = 0, width = fresh.length; at < fresh.length;) {
+    const slice = fresh.slice(at, at + width);
     try {
-      const loaded = fresh.length ? await selectedSnapshots<PageSnapshot>(tenantId, "*", variantsOf(fresh), { retainPreviousTrusted: true, retainCaptureIds: [...new Set(fresh.flatMap(pinsFor))] }) : [];
-      rows.push(...loaded); for (const u of fresh) { const own = loaded.filter(r => canonicalUrlKey(r.url) === canonicalUrlKey(u)); reuse?.set(readKey(u), own.length ? own : "no_capture"); if (pinsFor(u).length) reuse?.set(JSON.stringify([tenantId, variantsOf([u]).sort()]), own.length ? own : "no_capture"); }
+      const loaded = await selectedSnapshots<PageSnapshot>(tenantId, "*", variantsOf(slice), { retainPreviousTrusted: true, retainCaptureIds: [...new Set(slice.flatMap(pinsFor))] });
+      for (const u of slice) { const own = loaded.filter(r => canonicalUrlKey(r.url) === canonicalUrlKey(u)); packets.set(readKey(u), own.length ? own : "no_capture"); if (pinsFor(u).length) packets.set(JSON.stringify([tenantId, variantsOf([u]).sort()]), own.length ? own : "no_capture"); }
     } catch (e) {
-      for (const u of fresh) { failed.add(canonicalUrlKey(u)); reuse?.set(readKey(u), "read_failed"); }
-      log.warn("[owned-context] one page-body chunk could not be read; its pages are unknown and the rest still answer", { pages: fresh.length, error: e instanceof Error ? e.message.slice(0, 200) : String(e) });
+      if (e instanceof RangeError && /^Supabase snapshot (query|identity) exceeds the encoded request budget$/.test(e.message) && slice.length > 1) {
+        width = Math.ceil(slice.length / 2); continue;
+      }
+      for (const u of slice) packets.set(readKey(u), "read_failed");
+      log.warn("[owned-context] one page-body chunk could not be read; its pages are unknown and the rest still answer", { pages: slice.length, error: e instanceof Error ? e.message.slice(0, 200) : String(e) });
     }
-    for (const row of rows.sort((a, b) => b.fetched_at.localeCompare(a.fetched_at))) { const key = canonicalUrlKey(row.url); if (wanted.has(key)) captures.set(key, [...(captures.get(key) ?? []), row]); }
+    at += slice.length;
   }
-  for (const [key, rows] of captures) {
+  for (const u of asked) {
+    const key = canonicalUrlKey(u), held = packets.get(readKey(u));
+    if (!Array.isArray(held)) { misses?.set(key, held === "read_failed" ? "read_failed" : "no_capture"); continue; }
+    const rows = [...held].sort((a, b) => b.fetched_at.localeCompare(a.fetched_at));
     const v = selectPageVersion(rows, (r) => ({ fetchedAt: typeof r.fetched_at === "string" ? r.fetched_at : null, words: typeof r.word_count === "number" && r.word_count > 0 ? r.word_count : typeof r.body_text === "string" ? r.body_text.trim().split(/\s+/).filter(Boolean).length : 0, bodyHeld: typeof r.body_text === "string", certainty: typeof r.extraction_certainty === "string" ? r.extraction_certainty : null, contentIdentity: typeof r.content_hash === "string" ? r.content_hash : null }));
-    if (!v.content) continue;
+    if (!v.content) { misses?.set(key, "no_capture"); continue; }
     const body = bodyOf(v.content), newestAt = v.conflict && typeof (v.current as Row | null)?.fetched_at === "string" ? ((v.current as Row).fetched_at as string) : null;
     out.set(key, { ...body, tenantId, ...(Number.isSafeInteger(v.content.capture_version) && Number(v.content.capture_version) > 0 ? { captureVersion: Number(v.content.capture_version) } : {}), finalUrl: typeof v.content.final_url === "string" ? v.content.final_url : null, pageId: typeof v.content.page_id === "string" ? v.content.page_id : undefined, captureId: typeof v.content.id === "string" ? v.content.id : undefined, latestCaptureId: typeof v.current?.id === "string" ? v.current.id : undefined, captureStates: rows, version: v.state, newestAt, ...(v.conflict ? { heldNote: `${body.heldNote} ${v.conflictKind === "collapse" ? `The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured sharply less content than the preceding trusted read; one more agreeing capture is required before treating that apparent deletion as current.` : `The newest read of this page, ${newestAt?.slice(0, 10) ?? "recently"}, captured no words Beacon can trust.`} These are the words captured ${body.fetchedAt?.slice(0, 10) ?? "earlier"}. They prove what the page said then, never what it lacks now.` } : {}) });
   }
-  if (misses) for (const key of wanted) if (!out.has(key)) misses.set(key, failed.has(key) ? "read_failed" : "no_capture");
   return out;
 }
 

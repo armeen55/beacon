@@ -15,7 +15,7 @@ export async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fet
   const sb = getSupabaseAdmin(), selected = new Map<string, Capture[]>(), heldBodies = new Map<string, string>();
   const baseBytes = Buffer.byteLength(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") + 24;
   const withinRequest = (params: Record<string, string>) => {
-    if (baseBytes + new URLSearchParams(params).toString().length > requestBytes) throw new Error("Supabase snapshot query exceeds the encoded request budget");
+    if (baseBytes + new URLSearchParams(params).toString().length > requestBytes) throw new RangeError("Supabase snapshot query exceeds the encoded request budget");
   };
   const identities = () => {
     const q = sb.from("page_snapshots").select(identityColumns).eq("tenant_id", tenantId);
@@ -32,7 +32,7 @@ export async function selectedSnapshots<T extends Pick<PageSnapshot, "id" | "fet
         if (bytes + cost > requestBytes) break;
         chunk.push(ids[start++]!); bytes += cost;
       }
-      if (!chunk.length) throw new Error("Supabase snapshot identity exceeds the encoded request budget");
+      if (!chunk.length) throw new RangeError("Supabase snapshot identity exceeds the encoded request budget");
       const { data, error } = await sb.from("page_snapshots").select(projection).eq("tenant_id", tenantId).in("id", chunk).limit(pageSize);
       if (error) throw new Error(`Supabase selected snapshot read failed: ${error.message}`);
       const rows = (data ?? []) as unknown as R[], actual = new Set(rows.map((r) => r.id));
