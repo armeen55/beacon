@@ -183,7 +183,7 @@ export type Interp = {
  *  failures carrying a DISPOSITION; not_configured is soft unavailable coverage. */
 export function interp(r: CachedCallResult): Interp {
   switch (r.state) {
-    case "hit": return { kind: "evidence", hit: true, payload: r.envelope, cacheKey: r.cacheKey, costUsd: 0, modelServed: r.modelServed, modelRequested: null };
+    case "hit": return { kind: "evidence", hit: true, payload: r.envelope, cacheKey: r.cacheKey, costUsd: 0, modelServed: r.modelServed, modelRequested: r.modelRequested ?? null };
     case "ok": return { kind: "evidence", hit: false, payload: r.envelope, cacheKey: r.cacheKey, costUsd: r.costUsd, modelServed: r.modelServed, modelRequested: r.modelRequested ?? null };
     case "waiting": return { kind: "waiting", hit: false, cacheKey: r.cacheKey, costUsd: r.costUsd, providerTaskId: r.providerTaskId, modelServed: null, modelRequested: r.modelRequested ?? null, detail: r.detail };
     // A spend cap is a plain recoverable pause, never a dead task identity.

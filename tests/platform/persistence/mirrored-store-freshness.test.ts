@@ -1,4 +1,3 @@
-/** Canonical array custody: absence, outages, acknowledged writes and scoped concurrency. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
 const STORE = "customer-surface", WRITE = "results-surface";

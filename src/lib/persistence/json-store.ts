@@ -32,9 +32,7 @@ const SUPABASE_MIRRORED_STORES = new Set<string>([
   "gsc-fresh-tail",
   // The banked searches no page of an account is for; read by the coverage walk on every hosted pass.
   "coverage-needs",
-  // The day's heavy evidence aggregates (GSC signals/decay, GA4 values/revenue), keyed by the data's own
-  // watermark; readers/daily-read-cache.ts. File-only it no-ops on Vercel and every scheduler tick re-pays
-  // 6-second aggregates into a 9-connection PostgREST pool, which is the saturation that stalled delivery.
+  // Complete daily aggregates share a watermark bank; SQL merges each owned kind atomically.
   "daily-evidence",
   "llm-budget", // THE WRITER'S MONTHLY CEILING, WHICH ONLY EXISTS IF PRODUCTION CAN READ IT. The cap lived in a file that no-ops on Vercel, so hosted `readState` fell back to the code default while the SPEND came from the durable Supabase ledger: two authorities for one door, and the only way to give an account room was editing a constant for every tenant and every month. Mirrored, the operator's per-account ceiling is durable and production reads the same one a local pass does. domains/decision/llm/adjudicator-budget.ts
 ]);
@@ -74,15 +72,29 @@ async function readMirroredBlob(scopeKey: string, storeName: string): Promise<Mi
   }
 }
 
-async function writeMirroredBlob(scopeKey: string, storeName: string, content: unknown[]): Promise<void> {
+const dailyDate = (value: unknown): string | null => {
+  if (typeof value !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value) || Number(value.slice(0, 4)) === 0) return null;
+  const at = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(at) && new Date(at).toISOString().slice(0, 10) === value ? value : null;
+};
+
+async function writeMirroredBlob(scopeKey: string, storeName: string, content: unknown[], tenantId?: string): Promise<unknown[]> {
   const { getSupabaseAdmin } = await import("./supabase");
-  const { data, error } = await getSupabaseAdmin().from(BLOBS_TABLE).upsert(
+  if (storeName === "daily-evidence" && (!tenantId?.trim() || content.length !== 1)) throw new Error("[json-store] daily evidence requires one explicitly owned candidate");
+  const { data, error } = storeName === "daily-evidence" ? await getSupabaseAdmin().rpc("merge_daily_evidence", { p_scope_key: scopeKey, p_tenant_id: tenantId!, p_candidate: content[0] }) : await getSupabaseAdmin().from(BLOBS_TABLE).upsert(
     { scope_key: scopeKey, store_name: storeName, content, updated_at: new Date().toISOString() },
     { onConflict: "scope_key" },
   ).select("scope_key").maybeSingle();
-  if (error != null || data?.scope_key !== scopeKey) {
+  const rows = storeName === "daily-evidence" ? data?.content : content;
+  const submitted = content[0] as { kind?: string; watermark?: string } | null, winner = Array.isArray(rows) ? rows.find(row => row?.kind === submitted?.kind) : null, expectedDate = dailyDate(submitted?.watermark);
+  const validDaily = storeName !== "daily-evidence" || Array.isArray(rows) && rows.length > 0 && new Set(rows.map(row => row?.kind)).size === rows.length
+    && rows.every(row => row && row.tenant_id === tenantId && ["clarity-signals", "gsc-signals", "gsc-decay", "ga4-values", "ga4-split", "ga4-revenue"].includes(row.kind) && dailyDate(row.watermark) != null
+      && typeof row.computedAt === "string" && /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$/.test(row.computedAt) && Number.isFinite(Date.parse(row.computedAt)) && dailyDate(row.computedAt.slice(0, 10)) != null
+      && row.payload != null && typeof row.payload === "object") && expectedDate != null && dailyDate(winner?.watermark) != null && winner.watermark >= expectedDate;
+  if (error != null || data?.scope_key !== scopeKey || !Array.isArray(rows) || !validDaily) {
     throw new Error(`[json-store] saved ${storeName} write was not acknowledged for ${scopeKey}: ${error?.message ?? "missing or mismatched row"}`);
   }
+  return rows;
 }
 
 /**
@@ -102,17 +114,6 @@ const warm = (name: string, key: string): boolean => cache.has(key) && (!SUPABAS
  */
 const writeLocks = new Map<string, Promise<void>>();
 
-/**
- * Read a named store. Returns the cached array on subsequent calls
- * (cache key includes tenant scope, so different tenants don't share).
- *
- * Phase 7.8d-1: unknown-scope reads throw fail-loud. Known stores
- * with no canonical row yet return the caller's `fallback` (or `[]`).
- *
- * P2-f (2026-07-10, visual audit) - `opts.tenantId`, same purpose as writeStore's:
- * lets a background caller (e.g. a next/server after() rebuild) read the tenant it
- * already has explicitly, instead of falling back to ambient currentTenantSlug().
- */
 /** ONE WINNER PER SCOPE, DECIDED BY THE DATABASE: insert wins a virgin scope, a conditional update takes only
  *  an EXPIRED hold, and everything else is refused. The winner gets an owner token; releaseScope lands only
  *  while that exact token still holds, so a holder that outlived its TTL frees nothing on its way out.
@@ -175,6 +176,7 @@ export async function releaseScope(name: string, key: string, owner: string): Pr
   }
 }
 
+/** Read canonical scoped rows; unavailable refreshes retain only previously acknowledged truth. */
 export async function readStore<T>(name: string, fallback?: T[], opts: { tenantId?: string; forceRefresh?: boolean } = {}): Promise<T[]> {
   const resolved = await resolveDataPath(name, opts.tenantId);
 
@@ -198,7 +200,7 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
 }
 
 /** Canonical writes commit before cache publication; failure preserves the last acknowledged rows. */
-export async function writeStore<T>(name: string, data: T[], opts: { tenantId?: string } = {}): Promise<void> {
+export async function writeStore<T>(name: string, data: T[], opts: { tenantId?: string } = {}): Promise<T[]> {
   if (name === "customer-surface") {
     throw new Error("[json-store] customer-surface writes require publishCustomerRelease so ranking and content commit atomically.");
   }
@@ -206,9 +208,10 @@ export async function writeStore<T>(name: string, data: T[], opts: { tenantId?: 
   const content = structuredClone(data), resolved = await resolveDataPath(name, opts.tenantId);
   const prev = writeLocks.get(resolved.cacheKey) ?? Promise.resolve();
   const next = prev.then(async () => {
-    await writeMirroredBlob(resolved.cacheKey, name, content);
-    cache.set(resolved.cacheKey, content); filledAt.set(resolved.cacheKey, Date.now());
+    const saved = await writeMirroredBlob(resolved.cacheKey, name, content, opts.tenantId);
+    cache.set(resolved.cacheKey, saved); filledAt.set(resolved.cacheKey, Date.now());
+    return saved as T[];
   });
-  writeLocks.set(resolved.cacheKey, next.catch(() => {}));
-  await next;
+  writeLocks.set(resolved.cacheKey, next.then(() => {}, () => {}));
+  return next;
 }

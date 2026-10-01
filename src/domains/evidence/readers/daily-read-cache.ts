@@ -2,8 +2,8 @@ import "server-only";
 
 /** Watermarks bind heavy evidence aggregates to the current source data.
  * Failed or partial computations never become the day's bank; store failures serve live.
- * Each tenant shares pending reads and sequences complete row merges through acknowledged writes.
- * A failed predecessor is reread canonically before the next update, never reused as saved truth. */
+ * Each tenant shares pending reads; SQL merges complete rows across instances.
+ * Only the returned acknowledged bank is cached, never an uncommitted candidate. */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
@@ -18,12 +18,11 @@ type Row = { tenant_id: string; kind: string; watermark: string; computedAt: str
  *  for a few seconds, exactly long enough for one pass's four readers; a write refreshes it. */
 const SHARE_MS = process.env.VITEST === "true" ? 0 : 45_000; // hermetic tests re-read per call, the same convention the credit breaker uses
 const shared = new Map<string, { rows: Promise<Row[]>; at: number }>();
-function readRows(tenantId: string, update?: (rows: Row[]) => Promise<Row[]>): Promise<Row[]> {
+function readRows(tenantId: string, saved?: Promise<Row[]>): Promise<Row[]> {
   const held = shared.get(tenantId);
   const current = held && Date.now() - held.at < SHARE_MS;
-  if (!update && current) return held.rows;
-  const rows = current ? held.rows : readStore<Row>(STORE, [], { tenantId });
-  const slot = { rows: update ? (current ? rows.catch(() => readStore<Row>(STORE, [], { tenantId, forceRefresh: true })) : rows).then(update) : rows, at: Infinity };
+  if (!saved && current) return held.rows;
+  const slot = { rows: saved ?? readStore<Row>(STORE, [], { tenantId }), at: Infinity };
   shared.set(tenantId, slot);
   slot.rows = slot.rows.then(
     rows => { slot.at = Date.now(); return rows; },
@@ -52,11 +51,8 @@ export async function readThroughDaily<P>(args: {
   const fresh = await args.compute();
   if (watermark && fresh.cacheable) {
     try {
-      await readRows(tenantId, async rows => {
-        const next = [...rows.filter((r) => !(r.tenant_id === tenantId && r.kind === kind)),
-          { tenant_id: tenantId, kind, watermark, computedAt: new Date().toISOString(), payload: fresh.payload }];
-        return writeStore<Row>(STORE, next, { tenantId }).then(() => next);
-      });
+      await readRows(tenantId, writeStore<Row>(STORE,
+        [{ tenant_id: tenantId, kind, watermark, computedAt: new Date().toISOString(), payload: fresh.payload }], { tenantId }));
     } catch (e) {
       log.warn("[daily-read-cache] the day's row did not persist; served live and the next read pays again", { tenantId, kind, error: e instanceof Error ? e.message : String(e) });
     }

@@ -216,7 +216,7 @@ export type EngineModelResolution = { model: string; method: "standard" | "live"
 export type FailureDisposition = "retry_free" | "repost_once" | "blocked" | "quarantined" | "daily_limit" | "none";
 
 export type CachedCallResult =
-  | { state: "hit"; envelope: ProviderEnvelope; costUsd: 0; cacheKey: string; modelServed: string | null }
+  | { state: "hit"; envelope: ProviderEnvelope; costUsd: 0; cacheKey: string; modelServed: string | null; modelRequested?: string | null }
   | { state: "ok"; envelope: ProviderEnvelope; costUsd: number; cacheKey: string; modelServed: string | null; modelRequested?: string | null }
   /** waiting = GENUINE queue/in-flight work only (40601/40602, a live claim, or
    *  a transport blip on the free GET): the task id is preserved and the next

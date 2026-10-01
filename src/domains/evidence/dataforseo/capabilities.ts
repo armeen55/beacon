@@ -227,7 +227,6 @@ export async function providerCall<K extends CapabilityKey>(
   if (liveSerp) { const standard = entry.route(resolution), standardKey = identityCacheKey({ endpoint: standard.postPath, publicInput, providerPayload: payload, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim }), bank = await runWithoutSpending(() => runResolvedCall({ ...resolved, cacheKey: standardKey, endpoint: standard.postPath, postPath: standard.postPath, getPath: standard.getPath, tasksReadyPath: standard.tasksReady, mode: standard.mode, paidBlockedReason: "The exact Standard bank is empty; only a separately authorized Live read may follow." }, deps)); if (bank.state !== "capped" && bank.state !== "not_configured") return bank; } const result = await runResolvedCall(resolved, deps);
   if (capability === "onpage_rendered_html" && (result.state === "ok" || result.state === "hit"))
     return hydrateRendered(result, canonicalUrl(String(publicInput.url ?? "")), ids.tenantId, deps);
-  if (modelRequested && (result.state === "ok" || result.state === "waiting")) return { ...result, modelRequested };
   return result;
 }
 export async function keywordIdeasBatched(
@@ -291,16 +290,15 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
     }
   }
   if (!envelope) return null;
-  return selectResolution(modelObjects(envelope));
+  return selectResolution(modelObjects(envelope), FALLBACK[engine].model);
 }
-function selectResolution(models: Record<string, unknown>[]): EngineModelResolution | null {
-  if (models.length === 0) return null;
+function selectResolution(models: Record<string, unknown>[], preferred: string): EngineModelResolution | null {
+  const named = models.filter(m => str(m.model_name)?.trim()).sort((a, b) => Number(b.model_name === preferred) - Number(a.model_name === preferred) || (String(a.model_name) < String(b.model_name) ? -1 : Number(String(a.model_name) > String(b.model_name))));
   const web = (m: Record<string, unknown>) => m.web_search_supported === true;
   const post = (m: Record<string, unknown>) => m.task_post_supported === true;
-  const chosen = models.find((m) => web(m) && post(m)) ?? models.find(web) ?? models.find(post) ?? models[0];
-  const model = str(chosen.model_name);
-  if (!model) return null;
-  return { model, method: post(chosen) ? "standard" : "live", webSearch: web(chosen) };
+  const chosen = named.find((m) => web(m) && post(m)) ?? named.find(web) ?? named.find(post) ?? named[0];
+  if (!chosen) return null;
+  return { model: String(chosen.model_name), method: post(chosen) ? "standard" : "live", webSearch: web(chosen) };
 }
 function resultBlock(env: ProviderEnvelope): { result0: Record<string, unknown> | null; items: Record<string, unknown>[] } {
   const result = env.tasks?.[0]?.result;
