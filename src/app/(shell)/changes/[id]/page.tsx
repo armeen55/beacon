@@ -54,9 +54,9 @@ export default async function ChangeDetailPage({
           anchorAfter: link ? (c.anchorAfter ?? (change.kind === "existing_edit" ? change.anchorText : null))?.trim() || null : null, redirectTo: c.redirectTo ?? (link && change.kind === "existing_edit" ? change.linkTo : null) ?? null };
         return ledger.some((r) => (r.componentsApplied ?? []).some((applied) => applied.id && sameComponentId(applied.id, componentIdOf(c, i), [{ ...applied, before: applied.before === undefined && r.componentsApplied?.length === 1 ? r.before : applied.before, page: applied.page ?? r.page }, current]))) ? [componentIdOf(c, i)] : [];
       }));
-      return <BundleDetail proposal={found} bundle={found.bundle} recorded={recorded} returnTo={returnTo} />;
+      return <BundleDetail proposal={found} bundle={found.bundle} recorded={recorded} returnTo={returnTo} version={canonical?.proposal_version} />;
     }
-    if (found) return <SimpleDetail proposal={found} returnTo={returnTo} />;
+    if (found) return <SimpleDetail proposal={found} returnTo={returnTo} version={canonical?.proposal_version} />;
     if (proposal && !inProof) return <OutsideProofDetail proposal={proposal} version={proposal.kind === "new_page" && proposal.status === "needs_review" && proposal.basis === basis && canonical?.terminal_disposition == null && canonical && canonical.proposal_version > 0 && proposal.workKey?.trim() ? canonical.proposal_version : null} />;
     const stored = proposal ?? (await loadChangeProposal(tenantId, id, { retired: "include", canonicalOnly: true, canonicalRow: inspect }).catch(() => null));
     if (stored?.status === "implemented_pending_verification") {

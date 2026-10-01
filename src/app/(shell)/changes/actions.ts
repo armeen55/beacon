@@ -8,7 +8,7 @@ import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, openHold, unsettledCause,
-  implementationGuard, loadChangeProposal, nextObligation, resolveCurrentBasis, sameComponentId, treatmentSignatureOf,
+  implementationGuard, loadChangeProposal, resolveCurrentBasis, sameComponentId, treatmentSignatureOf,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, verifyShipmentNow, type MeasurementState } from "@/domains/measurement";
@@ -376,15 +376,21 @@ export async function reviewDraftAction(args: { proposalId: string; version: str
 
 export async function finishOneProposalAction(args: { prepareNext: true; proposalId?: never; prepare?: never; authorizationId?: never; limitToOneDollar?: true; maxTotalUsd?: number } | { proposalId: string; prepare: true; authorizationId?: string; prepareNext?: false; limitToOneDollar?: true; maxTotalUsd?: number; expectedVersion?: number } | { proposalId: string; prepare?: false; authorizationId?: string; prepareNext?: false; limitToOneDollar?: never; maxTotalUsd?: never }): Promise<MarkProposalImplementedResponse> {
   if (!(await canPublishForCurrentTenant())) return { success: false, error: "You do not have permission to finish this change." };
-  if ("maxTotalUsd" in args && (args.prepareNext !== true && args.prepare !== true || typeof args.maxTotalUsd !== "number" || !Number.isFinite(args.maxTotalUsd) || args.maxTotalUsd <= 0 || args.maxTotalUsd > (args.limitToOneDollar === true ? 1 : 1.05))) return { success: false, error: "Enter a total request ceiling greater than $0 and no more than $1.05." };
+  if ((args.prepare === true || "maxTotalUsd" in args) && (args.prepareNext !== true && args.prepare !== true || typeof args.maxTotalUsd !== "number" || !Number.isFinite(args.maxTotalUsd) || args.maxTotalUsd <= 0 || args.maxTotalUsd > (args.limitToOneDollar === true ? 1 : 1.05))) return { success: false, error: "Enter a total request ceiling greater than $0 and no more than $1.05." };
   if (args.prepareNext === true ? "proposalId" in args || "prepare" in args || "authorizationId" in args || "limitToOneDollar" in args && args.limitToOneDollar !== true : !args.proposalId || args.prepareNext !== undefined && args.prepareNext !== false || "limitToOneDollar" in args && (args.prepare !== true || args.limitToOneDollar !== true)) return { success: false, error: "Choose either the next change or one saved change." };
   const tenantId = await currentTenantId();
   try {
     let preferred: { proposalId: string; workKey: string; strict: true; version: number } | undefined;
-    if (args.prepare === true && args.maxTotalUsd !== undefined) { let version = 0, retired = false; const row = await loadChangeProposal(tenantId, args.proposalId, { canonicalOnly: true, canonicalRow: r => { version = r.proposal_version; retired = r.terminal_disposition != null; } }).catch(() => null); if (retired || !row || row.id !== args.proposalId || row.tenantId !== tenantId || row.kind !== "new_page" || row.status !== "needs_review" || !row.workKey?.trim() || !Number.isSafeInteger(args.expectedVersion) || version !== args.expectedVersion || version < 1) return { success: false, error: "This selected page version changed or is unavailable. Refresh it before preparing; no paid attempt started." }; preferred = { proposalId: row.id, workKey: row.workKey, strict: true, version }; }
+    if (args.prepare === true) {
+      let version = 0, retired = false; const inspect = (r: { proposal_version: number; terminal_disposition: string | null }) => { version = r.proposal_version; retired = r.terminal_disposition != null; };
+      const row = await loadChangeProposal(tenantId, args.proposalId, { canonicalOnly: true, canonicalRow: inspect }).catch(() => null);
+      if (retired || !row || row.id !== args.proposalId || row.tenantId !== tenantId || row.status !== "needs_review" || !row.workKey?.trim() || !Number.isSafeInteger(args.expectedVersion) || version !== args.expectedVersion || version < 1) return { success: false, error: "This selected change version changed or is unavailable. Refresh it before preparing; no paid attempt started." };
+      if (operatorUiPolicy.isMetaPredecessor(row)) { const successor = await atomicProof.currentMetaSuccessor(tenantId, row.id, await resolveCurrentBasis(tenantId)); await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); return { success: false, error: successor && successor !== row.id ? "The current replacement is saved. Open its displayed version before preparing; no paid request started." : "No current replacement is confirmed. Changes was refreshed; no paid request started." }; }
+      preferred = { proposalId: row.id, workKey: row.workKey, strict: true, version };
+    }
     if (args.prepareNext === true || preferred) {
       const result = await atomicProof.prepareNext({ tenantId, currentBasis: await resolveCurrentBasis(tenantId), eligible: operatorUiPolicy.isManualEditProofWork, ...(preferred ? { preferred } : {}), ...(args.limitToOneDollar === true ? { limitToOneDollar: true as const } : {}), ...(args.maxTotalUsd !== undefined ? { maxTotalUsd: args.maxTotalUsd } : {}) });
-      const readySaved = result.readySaved, evidenceOwed = result.run?.progress.evidenceOwed?.length ?? 0;
+      const readySaved = result.readySaved, evidenceOwed = result.run?.progress.evidenceOwed?.filter(n => !preferred || (n.proposalId ?? n.unlocks?.proposalId) === preferred.proposalId).length ?? 0;
       const receipt = { readySaved, evidenceOwed, run: result.run ? { id: result.run.id, status: result.run.status } : null, modelRequests: result.meter?.modelCalls ?? 0, reservedUsd: (result.meter?.modelReservedUsd ?? 0) + (result.meter?.externalReservedUsd ?? 0), sourceRequests: result.meter?.externalCalls ?? 0, sourceReservedUsd: result.meter?.externalReservedUsd ?? 0, reason: result.reason };
       const costs = ` Authorized request reservations: $${receipt.reservedUsd.toFixed(4)}; ${receipt.modelRequests} model requests authorized; source-read reservations $${receipt.sourceReservedUsd.toFixed(4)} for ${receipt.sourceRequests} authorized requests.${result.accountedUsd == null ? " Recorded conservative run total (may include unreconciled reservations; not an invoice) is unavailable." : ` Recorded conservative run total (may include unreconciled reservations; not an invoice): $${result.accountedUsd.toFixed(6)}.`}`;
       const blocker = ({ account_not_active: "This account is not active.", research_permission_refused: "Scheduled research must be paused for this action.",
@@ -393,31 +399,6 @@ export async function finishOneProposalAction(args: { prepareNext: true; proposa
       await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout");
       const note = `${result.success && readySaved > 0 ? `${readySaved} finished ${readySaved === 1 ? "change" : "changes"} saved.` : `${blocker ? `${blocker} ` : ""}No new finished change was confirmed. Collected evidence and unfinished copy stay saved.`}${evidenceOwed > 0 ? ` ${evidenceOwed} evidence ${evidenceOwed === 1 ? "requirement remains" : "requirements remain"}.` : ""}${costs} Nothing was published. Research settings were not changed.`;
       return result.success && readySaved > 0 ? { success: true, ...receipt, note } : { success: false, ...receipt, error: note };
-    }
-    if (args.prepare === true) {
-      const currentBasis = await resolveCurrentBasis(tenantId);
-      const successor = await atomicProof.currentMetaSuccessor(tenantId, args.proposalId, currentBasis);
-      if (!successor) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); return { success: false, error: "No current replacement is confirmed for this page. Changes was refreshed; no paid finishing attempt started." }; }
-      const result = await atomicProof.finishPage({ tenantId, proposalId: successor, currentBasis, maxOpenAiCalls: 8, maxOpenAiUsd: args.limitToOneDollar === true ? 0.8 : 2, maxDataForSeoCalls: 3, maxDataForSeoUsd: args.limitToOneDollar === true ? 0.2 : 0.4, ...(args.authorizationId !== undefined ? { authorizationId: args.authorizationId } : {}) });
-      const a = result.allowance, receipt = a ? ` Authorized request ceilings: OpenAI $${a.modelReservedUsd.toFixed(4)}, DataForSEO $${a.externalReservedUsd.toFixed(4)}. These are reservations, not invoices.` : " No paid request was authorized.";
-      await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout");
-      if (result.success) return { success: true, note: `A finished edit on this page is ready in Changes. Nothing was published.${receipt}` };
-      if (result.reason === "openai_not_configured_in_this_runtime") return { success: false, error: "The writing service is not configured in this runtime. No finishing attempt or paid request was used." };
-      if (["proof_admission_replayed", "proof_admission_resumed"].includes(result.reason)) return { success: false, error: "This page version already used its finishing attempt. No new provider request was authorized. Its saved work and receipts remain intact; research stays paused." };
-      const saved = result.preferredRetiredReason === "missing" ? await loadChangeProposal(tenantId, args.proposalId, { canonicalOnly: true }).catch(() => null) : null, savedStep = currentBasis && saved?.id === args.proposalId && saved.tenantId === tenantId && saved.basis === currentBasis && saved.status === "needs_review" ? nextObligation(saved) : null, owed = result.preferredRetiredReason === "missing" ? savedStep?.kind === "evidence" ? savedStep.need : null : result.evidenceOwed?.find((need) => need.proposalId === result.proposalId || need.unlocks?.proposalId === result.proposalId);
-      const refusal = result.reason === "saved_evidence_unreadable" ? "The saved page evidence is incomplete or unavailable, so this edit was not written." : result.preferredRetiredReason === "missing" ? owed ? "The exact edit still needs its named evidence before writing can finish." : "The current page plan no longer includes this exact edit."
-        : result.preferredRetiredReason === "blocked" ? "The exact edit is held by a current evidence or safety requirement."
-        : result.preferredRetiredReason === "settled" ? "This exact work was already settled on unchanged evidence."
-        : result.preferredRetiredReason === "out_of_scope" ? "This edit now needs whole-page delivery, which this focused action cannot finish."
-        : result.preferredOutcome === "evidence_required" || owed ? "The exact edit still needs its named evidence before writing can finish."
-        : result.preferredOutcome === "review_saved" ? "The exact edit was saved for review and is not yet copy-ready."
-        : result.preferredOutcome === "not_reached" ? "This run ended before the exact edit began."
-        : result.preferredOutcome === "deterministic_refusal" ? "The exact edit failed a current copy or safety check."
-        : "This attempt did not produce a finished edit.";
-      const detail = owed ? ` Still needs ${owed.kind.replaceAll("_", " ")} for “${owed.query}”.` : "";
-      const capture = result.captured ? " A complete current page capture was confirmed." : result.reason.startsWith("owned_capture_owed:") ? " A complete current page capture is still needed." : "";
-      const calls = a?.modelCalls === 0 && a.externalCalls === 0 ? " This focused run made 0 provider calls." : "";
-      return { success: false, error: `${refusal} Any collected evidence and unfinished copy remain saved.${capture}${detail}${calls}${receipt} Research stays paused.` };
     }
     const result = await atomicProof.run({ tenantId, proposalId: args.proposalId, currentBasis: await resolveCurrentBasis(tenantId), maxOpenAiCalls: 1, maxOpenAiUsd: 0.05 });
     const receipt = { providerCalls: result.meter?.providerCalls ?? 0, costUsd: result.meter?.costUsd ?? 0 };

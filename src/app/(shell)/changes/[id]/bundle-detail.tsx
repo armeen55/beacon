@@ -69,7 +69,7 @@ function EvidenceLines({ items }: { items: EvidenceLine[] }) {
   return <ul className="list-disc space-y-2 pl-4 text-[13px] leading-relaxed text-muted-foreground">{items.map((item, i) => <li key={i}><EvidenceText text={item.text} />{item.readings.map((id, j) => <span key={id}> <Link href={`/visibility?view=ai&reading=${encodeURIComponent(id)}`} className="inline-flex min-h-11 items-center font-semibold text-accent-primary underline underline-offset-2">Open exact AI reading{item.readings.length > 1 ? ` ${j + 1}` : ""}</Link></span>)}{item.sources?.length ? <ul className="mt-1 space-y-1 border-l border-border pl-3">{item.sources.map((source) => <li key={`${source.channel}:${source.url}`}>{operatorUiPolicy.livePageHref(source.url) ? <a href={operatorUiPolicy.livePageHref(source.url)!} target="_blank" rel="noreferrer" className="font-semibold text-accent-primary underline underline-offset-2">{source.publisher} ↗</a> : <span>{source.publisher}</span>}<span> · {source.channel === "aeo" ? `${source.recurrence ?? 0} cited answer${source.recurrence === 1 ? "" : "s"}` : `Google rank ${source.rank ?? "not recorded"}`}</span>{source.passage ? <p className="mt-0.5 text-[12px] text-muted-foreground">What was read: “{source.passage}”</p> : null}</li>)}</ul> : null}</li>)}</ul>;
 }
 
-export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes" }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string>; returnTo?: string }) {
+export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes", version }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string>; returnTo?: string; version?: number }) {
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
   const isNew = proposal.kind === "new_page", livePageHref = operatorUiPolicy.livePageHref(proposal.pageUrl);
@@ -200,7 +200,7 @@ export function BundleDetail({ proposal, bundle, recorded, returnTo = "/changes"
         {research ? <p className="text-[13px] leading-relaxed text-foreground" data-research-next="true">Next: {currentNext || proposal.research?.next?.trim() || "Beacon will recheck this change before it can be applied."}</p> : null}
         {research || held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
         {confirmable ? <ConfirmDangerous proposalId={proposal.id} version={confirmable} /> : null}
-        <SetAsideChange proposalId={proposal.id} displayedVersion={confirmedVersion(proposal)} finishable={canFinish(proposal) && !confirmable} prepare={proposal.status === "needs_review"} />
+        <SetAsideChange proposalId={proposal.id} displayedVersion={proposal.status === "needs_review" ? String(version ?? "") : confirmedVersion(proposal)} finishable={canFinish(proposal) && !confirmable} prepare={proposal.status === "needs_review"} />
       </section>
     </div>
   );
@@ -379,7 +379,7 @@ function ComponentCard({
   );
 }
 
-export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: ChangeProposal; returnTo?: string }) {
+export function SimpleDetail({ proposal, returnTo = "/changes", version }: { proposal: ChangeProposal; returnTo?: string; version?: number }) {
   const c = proposal.recommendedChange;
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
@@ -452,7 +452,7 @@ export function SimpleDetail({ proposal, returnTo = "/changes" }: { proposal: Ch
       {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}{currentNext ? ` ${currentNext}` : ""}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
         {research || held ? null : <MarkImplemented proposalId={proposal.id} expectedVersion={confirmedVersion(proposal)} scalarField={c.kind === "existing_edit" ? c.field : undefined} inPlaceLink={c.kind === "existing_edit" && c.linkMode === "in_place"} />}
-        <SetAsideChange proposalId={proposal.id} displayedVersion={confirmedVersion(proposal)} finishable={canFinish(proposal)} prepare={proposal.status === "needs_review"} />
+        <SetAsideChange proposalId={proposal.id} displayedVersion={proposal.status === "needs_review" ? String(version ?? "") : confirmedVersion(proposal)} finishable={canFinish(proposal)} prepare={proposal.status === "needs_review"} />
       </div>
     </div>
   );

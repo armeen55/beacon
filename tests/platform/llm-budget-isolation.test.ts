@@ -15,7 +15,7 @@ vi.mock("@/lib/cost/budget-ledger-supabase", () => ({
   getTenantSpentThisMonthUsd: vi.fn(async (tenantId: string) => DURABLE.get(tenantId) ?? 0),}));
 import { checkBudget } from "@/domains/decision/llm/adjudicator-budget";
 const A = "tenant-a";
-const B = "tenant-b";
+const B = "tenant-b", now = new Date("2026-09-19T00:00:00.000Z");
 describe("per-account LLM budget isolation", () => {
   beforeEach(() => {
     FILE_ROWS.clear();
@@ -23,10 +23,10 @@ describe("per-account LLM budget isolation", () => {
     readCalls.length = 0;});
   it("account A's spend never changes account B's remaining budget on either read layer", async () => {
     FILE_ROWS.set(A, [{ monthKey: "2026-09", spendUsd: 249.99, calls: 1, capUsd: 250, updatedAt: "2026-09-19T00:00:00.000Z" }]);
-    expect([(await checkBudget({ tenantId: A, projectedCostUsd: 0.02 })).allowed, await checkBudget({ tenantId: B, projectedCostUsd: 0.02 })]).toEqual([false, { allowed: true, remaining: 250 }]); // A is at its own cap, whatever that cap currently is; B untouched
+    expect([(await checkBudget({ now, tenantId: A, projectedCostUsd: 0.02 })).allowed, await checkBudget({ now, tenantId: B, projectedCostUsd: 0.02 })]).toEqual([false, { allowed: true, remaining: 250 }]); // A is at its own cap, whatever that cap currently is; B untouched
     FILE_ROWS.clear(); DURABLE.set(A, 250); // A's DURABLE monthly spend at cap, with nothing on its file layer
-    expect([(await checkBudget({ tenantId: A })).allowed, (await checkBudget({ tenantId: B })).allowed, FILE_ROWS.has(B)]).toEqual([false, true, false]); });
+    expect([(await checkBudget({ now, tenantId: A })).allowed, (await checkBudget({ now, tenantId: B })).allowed, FILE_ROWS.has(B)]).toEqual([false, true, false]); });
   it("a missing account fails before any ledger I/O", async () => {
-    await expect(checkBudget({ tenantId: "" })).rejects.toThrow(/tenantId is required/);
+    await expect(checkBudget({ now, tenantId: "" })).rejects.toThrow(/tenantId is required/);
     expect(readCalls.length).toBe(0);
   });});
