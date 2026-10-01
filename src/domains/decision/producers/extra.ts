@@ -156,8 +156,8 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   for (const p of pages) {
     const meta = (p.content?.metaDescription ?? "").trim().toLowerCase();
     if (!meta) continue;
-    const own = new Set([...labelOf(p).toLowerCase().split(/[^a-z0-9]+/), ...pathOf(p.url).toLowerCase().split(/[^a-z0-9]+/)].filter((t) => t.length > 2));
-    const skeleton = meta.split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !own.has(t)).join(" ");
+    const subject = labelOf(p).trim().toLowerCase(), parts = subject ? meta.split(subject) : [];
+    const skeleton = parts.length === 2 && !/[\p{L}\p{N}]$/u.test(parts[0]!) && !/^[\p{L}\p{N}]/u.test(parts[1]!) ? parts.join(" ").replace(/\s+/g, " ").trim() : "";
     if (skeleton.length > 40) boilerplate.set(skeleton, [...(boilerplate.get(skeleton) ?? []), p]);
   }
   const templated = [...boilerplate.values()].filter((g) => g.length >= 5);
