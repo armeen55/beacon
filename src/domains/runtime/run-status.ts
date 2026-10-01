@@ -6,10 +6,9 @@ import "server-only";
  * the ONE honest status line. Split out of research-run.ts, which owns the record and the
  * repository and nothing about how it reads.
  *
- * EVERY FIELD COMES OFF THE PERSISTED ROW. Nothing here consults a lease or a cache, so two
- * requests reading the same unchanged row always say the same thing. The ONE clock-dependent
- * reading is the interruption below, and it is taken against a persisted column that moves only
- * when real work happens, never against transient lease state.
+ * Fields come from saved progress and receipts. Clock-based interruption and silence use
+ * persisted progress timestamps; reads never advance them. Lease expiry and local caches
+ * never decide the customer-facing status.
  */
 
 import type { ResearchPhase, ResearchRun } from "./research-run";
@@ -31,8 +30,7 @@ export function nextPhase(phase: ResearchPhase): ResearchPhase {
   return i < 0 || i + 1 >= STEP_ORDER.length ? "done" : STEP_ORDER[i + 1]!;
 }
 
-/** The compact Today projection, derived FROM the canonical record. `none` covers no-run and any fail-soft
- *  error. Counters carry evidence-backed numbers only: aiChecks* mirror persisted funnel counters. */
+/** Saved Today projection: counters use daily standing and then the phase-specific funnel fallback. */
 export type ResearchRunStatusView = {
   state: "running" | "queued" | "paused" | "completed" | "none";
   phaseLabel: string;
@@ -77,8 +75,6 @@ const INTERRUPTED_REASON = "Research stopped part way through. The next daily ro
 const SILENT_AFTER_MS = 36 * 60 * 60 * 1000;
 /** The reporting zone, and there is only one of it in V1: src/lib/reporting-day.ts holds the contract. */
 const TZ = { timeZone: "America/Los_Angeles" } as const;
-/** WHAT TO DO when nothing has run. Named once, so the promise on the screen and the control that keeps it cannot drift apart. */
-const RESTART_STEP = "Open Today and press Update data.";
 
 /** PURE. WHEN, in the reporting zone: "today at 9:14 AM" on the current day, "Aug 3 at 9:14 AM" on any other. */
 function whenLabel(atMs: number, nowMs: number): string {
@@ -87,30 +83,27 @@ function whenLabel(atMs: number, nowMs: number): string {
     ? `today at ${time}` : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...TZ })} at ${time}`;
 }
 
-/**
- * PURE. IS RESEARCH ALIVE FOR THIS ACCOUNT, in one sentence, off the persisted row and the clock alone.
- *
- * A COUNTER IS NOT A HEARTBEAT. Every surface reading of this run was a count, so an account whose research
- * had not run in a week and an account whose day was genuinely quiet both rendered the same empty string, and
- * an operator had no way at all to tell "nothing was owed" from "nothing is running". Three readings, and each
- * one carries a fact somebody can check: PRODUCTIVE names what the last pass produced and when, QUIET says it
- * looked and owed nothing and when, SILENT says how long it has been and what to press.
- */
+/** Pure saved-run projection: source qualification and ready copy are distinct outcomes.
+ * The row does not carry research consent, so this projection cannot promise a restart action. */
 function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunStatusView["state"]): NonNullable<ResearchRunStatusView["liveness"]> {
   const touched = Date.parse(run?.updated_at ?? "");
-  if (run == null || !Number.isFinite(touched)) return { state: "silent", line: `No research has run for this account yet. ${RESTART_STEP}` };
+  if (run == null || !Number.isFinite(touched)) return { state: "silent", line: `No research has run for this account yet.` };
   if (nowMs - touched >= SILENT_AFTER_MS) {
     const d = new Date(touched);
     // Inside a week the weekday is the thing a person actually remembers; past that it is a date.
     const since = nowMs - touched < 7 * 86_400_000 ? d.toLocaleDateString("en-US", { weekday: "long", ...TZ })
       : d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...TZ });
-    return { state: "silent", line: `No research has run since ${since}. ${RESTART_STEP}` };
+    return { state: "silent", line: `No research has run since ${since}.` };
   }
   const num = (v: unknown): number => Number(v) || 0;
   const f = run.progress?.funnel ?? {}, s = run.progress?.state ?? {};
   const answers = num(f.answersAnalyzed), collected = num(s.checksAnswers), sources = num(run.progress?.sourcesRefreshed), spent = num(run.spend_usd);
-  const at = whenLabel(Date.parse(run.completed_at ?? "") || touched, nowMs);
-  // ONE number, the closest one to a saved customer outcome: a reading beats a collection, and a collection beats a refresh. Spend is accounting evidence only; it can prove a pass was not quiet, never that it was productive.
+  const at = whenLabel(Date.parse(run.completed_at ?? "") || touched, nowMs), receipt = run.progress?.replenish?.outcomes;
+  const own = receipt?.pass === run.cycle_key, positive = (n: unknown): n is number => typeof n === "number" && Number.isSafeInteger(n) && n > 0;
+  const ready = own && positive(receipt?.readySaved) ? receipt.readySaved : 0;
+  const qualified = own && (positive(receipt?.evidenceBanked) || run.progress?.acquisitions?.some(a => a.outcome === "unlocked" && ["serp", "factual_source", "page_source", "competitor_page"].includes(a.kind)));
+  if (ready > 0) return { state: "productive", line: `Saved ${ready} ready ${ready === 1 ? "change" : "changes"} ${at}.` };
+  if (qualified) return { state: state === "paused" ? "interrupted" : "quiet", line: `Source evidence was qualified in this run.${receipt?.readySaved === 0 ? " Its last preparation pass saved no new changes." : ""} Last progress ${at}.` };
   // AN ARRIVED ANSWER WAS ORDERED EARLIER: "collected 12 new answers" beside "research is paused" read as new
   // paid work on a paused account (operator, 2026-08-21). Arrival of an already requested answer is what it is.
   const did = answers > 0 ? `Checked ${answers} new AI ${answers === 1 ? "answer" : "answers"} for mentions of this site` /* what the reading is FOR, not how hard it looked ("Read 35 new answers closely" told the operator nothing, walk of 2026-09-16) */
@@ -120,10 +113,10 @@ function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunSt
   // died mid-research with zero output did NOT check everything, and saying so here contradicted the same
   // view's own pauseReason on the one surface that renders only this line.
   return did != null ? { state: "productive", line: `${did} ${at}.` }
-    : spent > 0 ? state === "completed" ? { state: "quiet", line: `Research ran ${at}, but saved no new usable evidence.` } : state === "running" ? { state: "quiet", line: `Research is still running. Paid work has not saved new usable evidence yet.` } : state === "queued" ? { state: "quiet", line: `Research is queued to continue. Paid work has not saved new usable evidence yet.` } : { state: "interrupted", line: `Research stopped partway ${at} after paid work saved no new usable evidence. ${RESTART_STEP}` }
+    : spent > 0 ? state === "completed" ? { state: "quiet", line: `Research ran ${at}.` } : state === "running" ? { state: "quiet", line: `Research is still running.` } : state === "queued" ? { state: "quiet", line: `Research is queued to continue.` } : { state: "interrupted", line: `Research stopped partway ${at}; unfinished work remains.` }
     : state === "completed" ? { state: "quiet", line: `Checked ${at}. Nothing new was owed.` }
     : state === "queued" ? { state: "quiet", line: `Research continues on the next scheduled pass. Last progress ${at}.` }
-    : { state: "interrupted", line: `Research stopped partway ${at}. ${RESTART_STEP}` };
+    : { state: "interrupted", line: `Research stopped partway ${at}.` };
 }
 
 /** Human step index for a phase; `done` maps to all nine steps done. */
