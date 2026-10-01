@@ -161,7 +161,7 @@ function weekStrip(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowM
   return {
     made: {
       label: "implemented", value: made.length > 0 ? `${made.length} ${made.length === 1 ? "change" : "changes"} marked implemented this week` : "No changes marked implemented this week",
-      sub: [live > 0 ? `${live} confirmed live and measuring` : "", flight.length - live > 0 ? `${flight.length - live} waiting on a live check` : "", b.blocked.length > 0 ? `${b.blocked.length} ${b.blocked.length === 1 ? "change could" : "changes could"} not be verified` : ""].filter(Boolean).join(", ") || "nothing measuring right now",
+      sub: [live > 0 ? `${live} confirmed live and measuring` : "", flight.length - live > 0 ? `${flight.length - live} waiting on a live check` : "", b.blocked.length > 0 ? `${b.blocked.length} ${b.blocked.length === 1 ? "change" : "changes"} blocked or not measurable` : ""].filter(Boolean).join(", ") || "nothing measuring right now",
       pages: pagesHover(made),
     },
     // ALL TIME, SAID ON THE TILE. "3 wins all time" sat beside "2 edits this week" under one week framing, so the

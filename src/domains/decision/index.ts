@@ -101,7 +101,6 @@ export {
 // Changes: lifecycle counts
 export {
   countLedgerLifecycle,
-  ledgerProofLine,
   splitLedgerLifecycle,
 } from "./changes/lifecycle-counts";
 

@@ -1,6 +1,6 @@
 /** Cross-surface counts from full-ledger reads: history stays visible;
  * only qualified applied units count as wins. Revert bookkeeping is not a new treatment. */
-import { bandOf, readRecordsForLearning, type LedgerRecordLike } from "@/domains/measurement/proof-gsc/kernel";
+import { bandOf, isMature, readRecordsForLearning, type LedgerRecordLike } from "@/domains/measurement/proof-gsc/kernel";
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
 
 /** The minimal shape of a shipped-change ledger row this module needs - structurally
@@ -19,6 +19,7 @@ export type LedgerLifecycleRow = {
   componentsApplied?: LedgerRecordLike["componentsApplied"];
   controlsReceipt?: LedgerRecordLike["controlsReceipt"];
   measurementState?: string | null;
+  judgedMetric?: import("@/domains/measurement/proof-gsc/shipped-change-store").ShippedChangeRecord["judgedMetric"];
   verdict: string;
   windows: ReadonlyArray<{
     day: number;
@@ -119,20 +120,11 @@ export function splitLedgerLifecycle<T extends LedgerLifecycleRow>(
   // reads whose live page was never read back, beside a Results page saying nothing was verified. A finished improving read files as
   // won only when the change was confirmed live; otherwise it is finished context and counts with what was learned.
   real.forEach((row, i) => {
-    if (row.implementedAt != null && row.verification?.status === "blocked" && row.verification.recheckAfter == null) { out.blocked.push(row); return; }
+    if ((row.implementedAt != null && row.verification?.status === "blocked" && row.verification.recheckAfter == null) || (row.judgedMetric == null || row.judgedMetric === "clicks") && isMature(reads[i].basisDay) && (reads[i].verdict === "confounded" || reads[i].overlappingIds.length > 0)) { out.blocked.push(row); return; }
     if (row.implementedAt != null && !liveProof(row)) { out.measuring.push(row); return; }
     const band = bandOf(reads[i]); out[band === "won" && reads[i].learning.eligible !== true ? "learned" : band].push(row);
   });
   return out;
-}
-
-/** THE ONE PROOF NUMBER A LEDGER ROW CAN PRINT. "It worked" beside a page name is a verdict with nothing behind it,
- *  and the row already carries the read: the newest window that actually ran, against the comparison pages nobody
- *  changed. Null while a change is still collecting, which is the honest answer. PURE; the STORED lift, never re-derived. */
-export function ledgerProofLine(row: Pick<LedgerLifecycleRow, "windows">): string | null {
-  const read = [...row.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null).sort((a, b) => b.day - a.day)[0];
-  const lift = read ? Math.round(read.adjustedLift!) : null;
-  return lift == null ? null : lift === 0 ? "clicks level with similar pages that were not changed" : `clicks ${lift > 0 ? `+${lift}` : lift} against similar pages that were not changed`;
 }
 
 /** The three ledger-derived counts, from the same split Results renders. */

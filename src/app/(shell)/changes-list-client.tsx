@@ -261,7 +261,7 @@ export function ChangesListClient({ view, initialPicked = [], researchPaused = f
         </p>
       ) : measuring > 0 || blocked > 0 || (wins ?? 0) > 0 ? (
         <p className="text-[13px] tabular-nums text-muted-foreground" data-measurement-line="true">
-          {[waiting == null && measuring > 0 ? "Live-check breakdown updating" : "", waiting != null && measuring - waiting > 0 ? `${(measuring - waiting).toLocaleString("en-US")} confirmed live and measuring` : "", waiting != null && waiting > 0 ? `${waiting.toLocaleString("en-US")} waiting on a live check` : "", blocked > 0 ? `${blocked.toLocaleString("en-US")} ${blocked === 1 ? "change could" : "changes could"} not be verified` : "", wins != null && wins > 0 ? `${wins.toLocaleString("en-US")} clear ${wins === 1 ? "win" : "wins"}` : ""].filter(Boolean).join(" · ")}
+          {[waiting == null && measuring > 0 ? "Live-check breakdown updating" : "", waiting != null && measuring - waiting > 0 ? `${(measuring - waiting).toLocaleString("en-US")} confirmed live and measuring` : "", waiting != null && waiting > 0 ? `${waiting.toLocaleString("en-US")} waiting on a live check` : "", blocked > 0 ? `${blocked.toLocaleString("en-US")} ${blocked === 1 ? "change" : "changes"} blocked or not measurable` : "", wins != null && wins > 0 ? `${wins.toLocaleString("en-US")} clear ${wins === 1 ? "win" : "wins"}` : ""].filter(Boolean).join(" · ")}
           {" · "}
           <Link href="/results" className="font-semibold text-accent-primary underline underline-offset-2">View Results</Link>
         </p>

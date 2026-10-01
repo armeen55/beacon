@@ -27,9 +27,9 @@ vi.resetModules(); const ago = (d: number) => new Date(Date.now() - d * 86_400_0
 describe("Today renders, and tells the truth about its own queue", () => {
   it("splits what is measuring into the changes confirmed live and the ones still waiting on that check", async () => {
     const html = await new Response(await renderToReadableStream(await Page({ searchParams: Promise.resolve({}) }), { onError: () => {} })).text();
-    expect(html).toContain("1 confirmed live and measuring, 2 waiting on a live check, 1 change could not be verified");
+    expect(html).toContain("1 confirmed live and measuring, 2 waiting on a live check, 1 change blocked or not measurable");
     const c = countLedgerLifecycle(ledgerRows); const view = { proposals: [], ready: [], toDo: [], research: [], aiCases: { state: "unavailable" }, summary: { ready: 0, todo: 0, research: 0, implemented: 0, measuring: c.measuring, results: c.decided }, measuringCountCanonical: c.measuring, waitingLiveCountCanonical: c.waiting, blockedCountCanonical: c.blocked } as unknown as import("@/app/(shell)/changes-data").ChangesView;
-    expect(renderToStaticMarkup(createElement(ChangesListClient, { view }))).toContain("1 confirmed live and measuring · 2 waiting on a live check · 1 change could not be verified");
+    expect(renderToStaticMarkup(createElement(ChangesListClient, { view }))).toContain("1 confirmed live and measuring · 2 waiting on a live check · 1 change blocked or not measurable");
     const stale = renderToStaticMarkup(createElement(ChangesListClient, { view: { ...view, waitingLiveCountCanonical: undefined, blockedCountCanonical: undefined, measuringCountCanonical: 158, wonCountCanonical: 6 } })); expect(stale).toContain("Live-check breakdown updating"); expect(stale).not.toMatch(/158 recorded|6 clear wins/);
     for (const m of ["@/domains/measurement", "@/app/(shell)/today-gate-data", "@/app/(shell)/today-view-data"]) vi.doUnmock(m); vi.resetModules(); }, 15_000);
   it("says it could not read the measured changes, and never that there are none, when THE STORE itself errors", async () => {
