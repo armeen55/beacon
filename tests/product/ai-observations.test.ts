@@ -19,7 +19,7 @@ function fakeTable(table: string) {
     gte: (c: string, v: unknown) => { db.filters[`${c}_gte`] = v; bounds[c] = { ...bounds[c], lower: String(v) }; return q; },
     lte: (c: string, v: unknown) => { db.filters[`${c}_lte`] = v; bounds[c] = { ...bounds[c], upper: String(v) }; return q; },
     update: (patch: Record<string, unknown>) => { db.updated = patch; return q; },
-    upsert: (chunk: Record<string, unknown>[]) => { for (const row of chunk) db.written.push({ table, row }); return { select: async () => ({ data: chunk.map((r) => ({ id: r.id })), error: db.error }) }; },
+    upsert: (chunk: Record<string, unknown>[]) => { for (const row of chunk) db.written.push({ table, row }); return { select: async (cols: string) => ({ data: chunk.map((r) => Object.fromEntries(cols.split(",").map((col) => [col, r[col]]))), error: db.error }) }; },
     then: (res: (v: { data: unknown; error: unknown }) => void) => {
       if (db.updated) return res({ data: db.matched, error: db.error });
       const mine = (table === "ai_observations" ? db.read : []).filter((r) => Object.entries(where).every(([c, v]) => r[c] === v) && Object.entries(bounds).every(([c, b]) => (!b.lower || String(r[c]) >= b.lower) && (!b.upper || String(r[c]) <= b.upper)));

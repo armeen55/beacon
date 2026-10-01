@@ -53,19 +53,19 @@ describe("dual-write tenant validation (fires before any I/O)", () => { // â”€â”
     expect(out).toEqual([{ id: "r1", tenant_id: TENANT }, { id: "r2", tenant_id: TENANT }, { id: "r3", tenant_id: TENANT }]); expect(original.tenant_id).toBe("");
     expect(() => tenantizeRows([{ id: "r1", tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/); expect(() => tenantizeRows([], "", "results")).toThrow(/tenantId must be a non-empty string/);});});
 describe("a canonical write that did not land never reads as done", () => {
-  const ROW = [{ tenant_id: TENANT, id: "r1" }];
-  it("only rows Postgres hands back count as written: an error throws, zero rows throws, an empty batch never reaches the client", async () => {
-    const seen: string[] = [];
+  const ROW = [{ tenant_id: TENANT, id: "r1" }, { tenant_id: TENANT, id: "r2" }];
+  it("requires every scoped submitted key exactly once, preserving errors and empty batches", async () => {
+    const [a, b] = ROW, malformed = [[], [a], [a, { ...b, id: "foreign" }], [a, { ...b, tenant_id: OTHER }], [a, a], [a, { tenant_id: TENANT }]];
+    let calls = 0;
     try {
       mem.upsert = () => ({ data: null, error: { message: 'column "id" does not exist' } });
       await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).rejects.toThrow(/does not exist/);
-      mem.upsert = () => ({ data: [], error: null });
-      await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).rejects.toThrow(/1 row\(s\) sent, 0 written/);
-      mem.upsert = (table, rows) => { seen.push(table); return { data: rows.map(() => ({ id: "r1" })), error: null }; };
+      for (const data of malformed) { mem.upsert = () => { calls++; return { data, error: null }; }; await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).rejects.toThrow(/2 row\(s\) sent/); }
+      expect(calls).toBe(malformed.length);
+      mem.upsert = () => ({ data: [b, a], error: null });
       await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).resolves.toBeUndefined();
-      await expect(dualWriteUpsertScoped("results", [], "id", TENANT)).resolves.toBeUndefined();
-    } finally { mem.upsert = null; }
-    expect(seen).toEqual(["results"]); });
+      mem.upsert = () => { throw new Error("empty batch reached transport"); }; await expect(dualWriteUpsertScoped("results", [], "id", TENANT)).resolves.toBeUndefined();
+    } finally { mem.upsert = null; } });
   it("refills and retries a page until registry, snapshot, and inventory writes all land", async () => {
     const { runCrawlBatch } = await import("@/domains/evidence/scanning/crawl-frontier"); const url = "https://own.example/a", ISO = "2026-07-31T00:00:00.000Z", html = "<html><body><main><h1>A page</h1><p>Some words on the page.</p></main></body></html>";
     let phase: "registry" | "snapshot" | "inventory" | "ok" = "registry", inventoried = false, fetches = 0; const writes: string[] = [];
