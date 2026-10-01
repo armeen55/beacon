@@ -1,6 +1,6 @@
 "use client";
 
-import { createElement, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { BundleComponent } from "@/domains/decision";
 import { confirmDangerousChangeAction, dismissProposalAction, finishOneProposalAction, markProposalImplementedAction, reviewDraftAction } from "./actions";
@@ -96,11 +96,10 @@ const withAnchor = <T,>(line: string, link: CopyLink, plain: (s: string) => T, m
   return at < 0 || !link ? [plain(line)] : [plain(line.slice(0, at)), mark(link.anchor), plain(line.slice(at + link.anchor.length))];
 };
 export function PublicationCopy({ text, units, link = null }: { text: string; units?: BundleComponent["units"]; link?: CopyLink }) {
-  const line = (s: string) => withAnchor<ReactNode>(s, link, (t) => t, (t) => <span key="a" className="underline decoration-accent-primary underline-offset-2">{t}</span>);
-  return <div className="space-y-2 whitespace-pre-wrap break-words">{units ? units.map((u, i) =>
-    u.kind === "paragraph" ? <p key={i}>{line(u.text)}</p> : u.kind === "heading" ? createElement(`h${u.level}`, { key: i, className: "font-semibold" }, u.text)
-      : u.kind === "table" ? <div key={i} className="overflow-x-auto"><table className="w-full border-collapse text-left text-[12px]"><thead><tr>{u.columns.map((column, j) => <th key={j} className="border border-border bg-surface-inset px-2 py-1.5 font-semibold">{line(column)}</th>)}</tr></thead><tbody>{u.rows.map((row, j) => <tr key={j}>{row.map((cell, k) => <td key={k} className="border border-border px-2 py-1.5 align-top">{line(cell)}</td>)}</tr>)}</tbody></table></div>
-        : createElement(u.kind === "ordered_list" ? "ol" : "ul", { key: i, className: `pl-6 ${u.kind === "ordered_list" ? "list-decimal" : "list-disc"}` }, u.items.map((item, j) => <li key={j}>{line(item)}</li>))) : <p>{line(text)}</p>}</div>;
+  return <div onClick={(event) => event.preventDefault()} onAuxClick={(event) => event.preventDefault()} className="space-y-2 whitespace-pre-wrap break-words overflow-x-auto
+    [&_:is(h1,h2,h3,h4,h5,h6)]:font-semibold [&_ol]:list-decimal [&_ul]:list-disc [&_:is(ol,ul)]:pl-6 [&_a]:underline [&_a]:decoration-accent-primary [&_a]:underline-offset-2
+    [&_table]:w-full [&_table]:border-collapse [&_table]:text-left [&_table]:text-[12px] [&_:is(th,td)]:border [&_:is(th,td)]:border-border [&_:is(th,td)]:px-2 [&_:is(th,td)]:py-1.5 [&_th]:bg-surface-inset [&_th]:font-semibold [&_td]:align-top"
+    dangerouslySetInnerHTML={{ __html: clipboardPayload(text, units, link).html }} />;
 }
 
 /** Shared publication payload: semantic HTML plus plain headings, lists and words without visible Markdown markers. */
