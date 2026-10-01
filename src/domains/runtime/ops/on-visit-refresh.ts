@@ -22,7 +22,6 @@ const VISIT_CYCLE_DEADLINE_MS = 300_000 - 100_000; /** THE VISIT DOOR RUNS INSID
 /** The least time left on a turn that is worth starting a bounded reading slice on. Under a minute and a half there is no room for one wave of readings and the writes behind it, so the turn goes straight to its phase and the reading is owed to the next one: a slice started with no time is a slice that spends money and stores nothing. */
 const ANALYSIS_SLICE_MIN_MS = 90_000;
 const LONG_PHASES = new Set<ResearchPhase>(["serp_analysis", "winning_pages"]);
-/** A day that cannot be counted is never a day that finished. */
 const DAY_UNREADABLE = "Today's AI checks could not be counted, so the day was not called finished. The next pass picks this up.";
 const FUNNEL_PHASES = new Set<ResearchPhase>(["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]);
 const PHASES_FOR: Record<DuePhase, readonly ResearchPhase[]> = {
@@ -40,20 +39,15 @@ const PHASES_FOR: Record<DuePhase, readonly ResearchPhase[]> = {
 function plannedPhases(progress: ResearchRunProgress | null): Set<ResearchPhase> | null {
   const units = progress?.plan?.units;
   if (!Array.isArray(units) || units.length === 0) return null;
-  const out = new Set<ResearchPhase>();
-  for (const u of units) for (const p of PHASES_FOR[u] ?? []) out.add(p);
-  return out;
+  return new Set(units.flatMap(u => PHASES_FOR[u] ?? []));
 }
-/** PURE. The next phase this plan actually allows, walking the SAME ordered cycle; `done` when none is left. */
 function nextPlanned(phase: ResearchPhase, allowed: Set<ResearchPhase>): ResearchPhase {
-  let next = phase;
-  while (next !== "done" && !allowed.has(next)) next = nextPhase(next);
-  return next;
+  while (phase !== "done" && !allowed.has(phase)) phase = nextPhase(phase);
+  return phase;
 }
 type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Partial<ResearchCycleSteps>; manualDelivery?: { currentBasis: string | null; eligible: (p: import("@/domains/decision").ChangeProposal) => boolean; limitToOneDollar?: true; maxTotalUsd?: number; preferred?: NonNullable<ResearchCycleSteps["preferred"]> } };
 type CycleReceipt = { success: boolean; reason: string; readySaved: number; run: ResearchRun | null; previousRun: ResearchRun | null; meter: ReturnType<typeof PROOF_SPEND.meter>; accountedUsd: number | null };
 type PhaseOutcome = { progress: ResearchRunProgress; /** The pages this phase banked evidence on, so the drive can hire the work that was waiting on one of them before the drive ends. */ banked?: readonly string[] };
-/** THE ONLY FACT-CHECK FAILURES THAT STOP A RUN: a lost or spent lease, a write that did not land, a thrown step. Everything else owes one more claim. */
 const FACT_CHECK_HARD_STOP = new Set(["lease_lost", /* lease_exhausted is not a stop (live 2026-09-02): with the finished-change stock walked first, a fact check that finds no room is ordinary, the phases behind it still run, and the claims stay owed to a later pass */ "inventory_write_failed", "store_write_failed", "step_error"]);async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progress: ResearchRunProgress, attemptKey: string, steps: ResearchCycleSteps): Promise<PhaseOutcome> { // THE LEASE NO LONGER TRAVELS HERE: the one phase that spent money under it, the fact check, now runs in the drive itself, ahead of the walk it feeds
   if (phase === "refresh_sources") {
     const result = await steps.refreshSources(tenantId, now, attemptKey);
@@ -76,7 +70,6 @@ function resolveAttemptKey(tenantId: string, runId: string, cycleKey: string, ph
 }
 /** WHAT THE RUN DURABLY BECAME, read off the state that actually landed and never off "the function returned": completed and paused landed on the row, lost_lease means another instance owns it, failed means execution threw or the state did not persist. The daily dispatch counts its receipt off exactly this. */
 type DriveReceipt = "completed" | "paused" | "failed" | "lost_lease";
-/** Execute the claimed run from its current_phase to done, or pause durably. The DATABASE lease we hold (via ownerToken) is renewed BEFORE every phase; if a renew / advance / finish reports our lease was lost, we abort immediately. */
 async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date, deadline: number, steps: ResearchCycleSteps, work: DueWork, initialSource?: NonNullable<ResearchRunProgress["evidenceOwed"]>[number] | null): Promise<DriveReceipt> {
   const tenantId = run.tenant_id, taskOf = (n: NonNullable<ResearchRunProgress["evidenceOwed"]>[number]): string => JSON.stringify([n.key, n.workKey, n.kind, n.reasonCode, n.query, n.missingTopic ?? "", n.url ?? "", n.rivalUrl ?? "", n.rivalUrls ?? null, n.proposalId ?? "", n.unlocks?.proposalId ?? "", n.ownerVersion ?? "", n.topic?.key ?? "", n.finding ?? null]), familyOf = (n: Pick<NonNullable<ResearchRunProgress["evidenceOwed"]>[number], "key" | "kind" | "query"> & Partial<NonNullable<ResearchRunProgress["evidenceOwed"]>[number]>): string => JSON.stringify([n.key, n.kind, n.reasonCode, n.query, n.missingTopic ?? "", n.url ?? "", n.rivalUrl ?? "", n.rivalUrls ?? null, n.proposalId ?? "", n.unlocks?.proposalId ?? "", n.topic?.key ?? "", n.finding ? [n.finding.tenantId, n.finding.page, n.finding.statementKey] : null]), retiredBy = (n: NonNullable<ResearchRunProgress["evidenceOwed"]>[number], r: Awaited<ReturnType<ResearchCycleSteps["replenishReady"]>>): boolean => !!r?.preferred?.retiredReason && (n.proposalId ?? n.unlocks?.proposalId) === r.preferred.proposalId && (!n.unlocks?.proposalId || n.unlocks.proposalId === r.preferred.proposalId) && n.workKey === r.preferred.workKey;  const passOrdinal = Number(/:p(\d+):/.exec(run.cycle_key)?.[1] ?? 1), ROTATION_EVERY: Partial<Record<DueWork["due"][number], number>> = { check_page_facts: 48, analyze_answers: 24, verify_and_measure: 12 }, offShift = run.progress?.providerWait ? [] : work.due.filter((u) => (ROTATION_EVERY[u] ?? 1) > 1 && passOrdinal % (ROTATION_EVERY[u] ?? 1) !== 1); if (offShift.length > 0) { work = { ...work, due: work.due.filter((u) => !offShift.includes(u)) }; log.info("[research-run] paid rotations wait their shift this drive", { tenantId, passOrdinal, offShift }); }
   const spentSoFar = async (funnel: number): Promise<number> => {
@@ -111,9 +104,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   progress = { ...progress, ...(lane ? { observations: { ...lane, done: work.checks.done, total: work.checks.total } } : { observations: undefined }) };
    const laneUnreadable = (why: string): void => { progress = { ...progress, state: { ...progress.state, blocker: why.slice(0, 300) }, observations: { state: "reading_unreadable", unread: null, done: work.checks.done, total: work.checks.total } }; };
   let readFirst = lane != null || planUnits.includes("analyze_answers");
-
   const readingOnly = planUnits.includes("analyze_answers") && !planUnits.includes("daily_observations");
-
   let lastDone = work.checks.done;
   const readAnswersBack = async (budgetMs: number): Promise<void> => {
     if (laneHeld("readback")) return; const pass = await withoutMoreSpend(() => steps.analyzeAnswers(tenantId, run.cycle_key.slice(-10), Math.max(0, budgetMs))).catch(() => null);
@@ -125,13 +116,9 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       answersAttempted: (f.answersAttempted ?? 0) + pass.attempted, answersRefused: (f.answersRefused ?? 0) + pass.refused,
       ...(Object.keys(answersOutcomes).length > 0 ? { answersOutcomes } : {}) } };
   };
-
   let readBeforePhase = LONG_PHASES.has(run.current_phase) && work.due.includes("analyze_answers");
-
   let slices = 3; const roomToRead = (ms: number): boolean => slices > 0 && ms >= ANALYSIS_SLICE_MIN_MS; // THREE slices, not one: 616 purchased answers sat unread while every drive read at most forty and handed the rest of its clock to phases that buy more. The deadline floor still bounds each slice, so reading can never eat the drive, and a pass with no debt spends nothing
-
   let conflictRetried: ResearchPhase | null = null;
-
   const MAX_CRAWL_ROUNDS = 4; let crawlRounds = 0;
    const FACT_UNIT_BOX_MS = 300_000, FACT_UNIT_MIN_MS = 45_000;
   const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = RESEARCH_CYCLE_DEADLINE_MS - 20_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 40_000, OWED_PER_DRIVE = 8, REPLENISH_BEGINS_MS = 110_000,  beginsMs = ((p) => p == null ? REPLENISH_BEGINS_MS : Math.min(REPLENISH_BOX_MS, Math.max(REPLENISH_MIN_MS, p) + STOP_STARTING_MS))(progress.replenish?.outcomes?.preparedMs);
@@ -140,7 +127,6 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     laneHeld = (lane: keyof typeof LANES): boolean => { const held = progress.zeroOutput?.lanes[lane]?.replace(/::facts\d+(?="\]$|$)/u, suffix => (progress.factsChecked ?? 0) > 0 && progress.factCheck?.status !== "failed" ? suffix : ""); if (PROOF_SPEND.cacheOnly() || lane === "readback" && progress.zeroOutput?.day !== day || ![inputOf(lane), legacyInput(lane)].includes(held ?? "\u0000")) return false; progress = { ...progress, state: { ...progress.state, blocker: progress.state?.blocker ?? `Paid work in ${LANES[lane]} produced nothing; ${lane === "readback" ? "it resumes tomorrow or when its inputs change." : "it resumes when its inputs change."}` } }; return true; },
     holdLane = (lane: keyof typeof LANES): void => { paidBlockedThisDrive = true; progress = { ...progress, zeroOutput: { day, lanes: { ...(progress.zeroOutput?.day === day ? progress.zeroOutput.lanes : { walk: progress.zeroOutput?.lanes.walk, fact_check: progress.zeroOutput?.lanes.fact_check }), [lane]: inputOf(lane) } } }; log.warn("[research-run] paid work produced nothing, so this lane is held on unchanged inputs", { tenantId, lane, input: inputOf(lane) }); }, paidWorkHeld = (): boolean => paidBlockedThisDrive || laneHeld("walk"), withoutMoreSpend = <T,>(fn: () => T, changedSource = !!source): T => paidBlockedThisDrive || !changedSource && paidWorkHeld() ? runWithoutSpending(fn) : fn(), memory = (): NonNullable<ResearchRunProgress["replenish"]>["jobs"] => (progress.replenish?.day === day ? progress.replenish.jobs : undefined) ?? {}, pageOf = (key: string): string => (key.split("::")[0] ?? "").toLowerCase();
   const shared = new Map<string, unknown>(), forget = (...parts: readonly string[]): void => { for (const k of [...shared.keys()]) if (parts.some((p) => k.startsWith(`${p}:`))) shared.delete(k); };  const boughtReadings = new Map<string, { acquired: boolean; detail: string; unlocked?: boolean; posted?: boolean; workKey?: string }>(), stalled = new Map<string, string>(), tried = new Map<string, NonNullable<NonNullable<ResearchRunProgress["evidenceOwed"]>[number]["tried"]>>();
-
   const waitingKeys = (): readonly string[] => (progress.replenish?.day === day ? progress.replenish.waiting : undefined) ?? [];
   const walkNow = async (asked: number, preferred?: { proposalId: string; workKey: string; strict?: true }, sourceWake?: NonNullable<ResearchRunProgress["sourceWakes"]>[number]): Promise<{ v: Awaited<ReturnType<ResearchCycleSteps["replenishReady"]>>; boxed?: true } | null> => { if (source && (progress.evidenceOwed ?? []).some(n => taskOf(n) === taskOf(source)) || await PROOF_SPEND.current(tenantId) === false || paidBlockedThisDrive || laneHeld("walk")) return { v: null }; const awakened = progress.replenish?.day === day ? progress.replenish.awakened ?? [] : [], receipt = [...(progress.acquisitions ?? [])].reverse().find((a) => a.outcome === "unlocked" && awakened.includes(a.key) && a.unlocks?.proposalId && a.workKey), wake = preferred ? undefined : sourceWake ?? progress.sourceWakes?.[0], causal = steps.preferred ?? preferred ?? (!sourceWake && receipt?.unlocks ? { proposalId: receipt.unlocks.proposalId, workKey: receipt.workKey, ...(receipt.kind === "page_source" && receipt.unlocks.beforeMicros === true || receipt.kind === "factual_source" && receipt.reasonCode === "external_claim_unconfirmed" ? { strict: true as const } : {}) } : undefined), from = nowFn().getTime(),
     box = Math.min(asked, RESEARCH_RUN_LEASE_SECONDS * 1000 - STOP_STARTING_MS - 15_000), // AND THE WALK STAYS INSIDE THE LEASE IT STARTED ON. It stops starting cards a margin before its box and the last card in flight may run that margin again, so a full-length box could write about ten seconds past the lease renewed in front of it, unowned. The box is held that margin plus the save's own room inside the lease instead.
@@ -412,7 +398,7 @@ export async function driveClaimed(run: ResearchRun, ownerToken: string, work: D
 
 const VISIT_EXTRA_PASSES_PER_DAY = 24; // THE DAY'S PASSES ARE THE RUNAWAY CEILING, NOT A RATE (operator, 2026-09-02): eight passes closed the day at 05:18 with fifty-one drafted rows waiting on results pages that cost cents; the daily budget is the brake on money, and every pass still opens only on genuinely due work
 export async function runResearchCycle(tenantId: string, options: ResearchCycleOptions = {}): Promise<CycleReceipt> {
-  const manual = options.manualDelivery, nowFn = options.now ?? (() => new Date()), deadline = nowFn().getTime() + (manual ? VISIT_CYCLE_DEADLINE_MS : options.deadlineMs ?? VISIT_CYCLE_DEADLINE_MS);
+  const manual = options.manualDelivery ? { ...options.manualDelivery } : undefined, nowFn = options.now ?? (() => new Date()), deadline = nowFn().getTime() + (manual ? VISIT_CYCLE_DEADLINE_MS : options.deadlineMs ?? VISIT_CYCLE_DEADLINE_MS);
   const sourceReads = new Map<string, unknown>(), steps: ResearchCycleSteps = { ...defaultSteps, ...options.steps, ...(manual ? { deliveryScope: "manual_delivery" as const, ...(manual.preferred ? { preferred: manual.preferred } : {}) } : {}) }; let source: NonNullable<ResearchRunProgress["evidenceOwed"]>[number] | null = null, sourcePending = false, prior: ResearchRun | null = null, active: ResearchRun | null = null, before: number | null = null, accountedBefore: number | null = 0;
   const decision = manual ? await import("@/domains/decision") : null, initial = manual ? await decision!.loadChangeProposals(tenantId, { canonicalOnly: true, failClosed: true }).catch(() => null) : null;
   const material = (p: BusinessProfile | null): string | null => { if (!p || p.accountId !== tenantId) return null; const { updatedAt: _at, legacy: _history, ...current } = p; return COPY_RULES.recordKey(current); }, profile = manual ? (invalidateBusinessProfileCache(tenantId), await loadBusinessProfile(tenantId, { failClosed: true }).catch(() => null)) : null, admitted = material(profile);
@@ -437,6 +423,20 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   if (manual && (!manual.currentBasis || !await inputsCurrent())) return answer("current_basis_unavailable_or_changed");
   if (manual && manual.maxTotalUsd !== 0 && !process.env.OPENAI_API_KEY?.trim()) return answer("openai_not_configured_in_this_runtime");
   if (manual && !initial) return answer("ready_baseline_unreadable");
+  if (manual && !manual.preferred) {
+    const queue = await decision!.loadProposalQueue(tenantId, { currentBasis: manual.currentBasis, now: nowFn(), deliveryScope: "all_changes", canonical: initial! }).catch(() => null);
+    if (!queue) return answer("saved_queue_unreadable");
+    const ready = new Set(queue.ready.map(p => p.id));
+    const selected = queue.ranked.find(p => p.status === "needs_review" && !ready.has(p.id));
+    if (selected) {
+      let version = 0, retired = false;
+      const row = await decision!.loadChangeProposal(tenantId, selected.id, { canonicalOnly: true, canonicalRow: r => { version = r.proposal_version; retired = r.terminal_disposition != null; } }).catch(() => null);
+      if (retired || !row || !Number.isSafeInteger(version) || version < 1 || COPY_RULES.recordKey(row) !== COPY_RULES.recordKey(initial!.get(selected.id))) return answer("selected_change_version_unavailable_or_changed");
+      manual.preferred = { proposalId: row.id, workKey: row.workKey ?? "", strict: true, version };
+      steps.preferred = manual.preferred;
+      if (!await targetCurrent()) return answer("selected_change_version_unavailable_or_changed");
+    }
+  }
 
   const selectedDebt = manual?.preferred ? initial?.get(manual.preferred.proposalId)?.obligation : null, selectedNeed = selectedDebt?.kind === "evidence" && selectedDebt.need.proposalId === manual?.preferred?.proposalId && (selectedDebt.need.kind !== "serp" || selectedDebt.need.ownerVersion === manual?.currentBasis) && selectedDebt.need.query.trim() ? selectedDebt.need : null; source = manual?.preferred && selectedNeed?.kind === "serp" ? { ...selectedNeed, delivery: DRAFT_BUDGET.deliveryOf(initial!.get(manual.preferred.proposalId)!), key: manual.preferred.proposalId, workKey: manual.preferred.workKey, reason: "The exact selected change requires its named results page." } : manual && !manual.preferred ? await steps.initialTarget?.(tenantId, deadline - 40_000, sourceReads).catch(() => null) ?? await serpSource().catch(() => null) : null; sourcePending = source?.kind === "serp"; const rivalUrl = selectedNeed?.kind === "factual_source" ? selectedNeed.rivalUrl ?? selectedNeed.rivalUrls?.[0] : source?.rivalUrl, target = source?.kind === "serp" ? { capability: "serp_organic", url: source.query } : rivalUrl ? { capability: "onpage_content_parsing", url: rivalUrl } : null;
   const externalUsd = target ? Math.min(.05, manual?.maxTotalUsd ?? .05) : 0, modelUsd = Math.min(manual?.limitToOneDollar === true ? .95 : 1, (manual?.maxTotalUsd ?? Infinity) - externalUsd);
