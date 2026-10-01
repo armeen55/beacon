@@ -1,26 +1,10 @@
 import "server-only";
 import { dayLabel } from "@/lib/presenter";
 
-/**
- * decision/coverage-adjudication: the ONE verdict on whether this account ALREADY has the right page for a
- * topic it researched. The generation before this shipped duplicates of pages the account already owned,
- * because nobody asked the COMPARISON question first. That is the only question this file answers, once per
- * topic; it drafts nothing, proposes nothing and persists nothing, and an EARNED `create_new` here is the only thing decision/new-page builds from.
- *
- * EVERY VERDICT IS DECIDED IN CODE. Nothing here calls a model, so the ladder is free, repeatable and checkable, and `missing` names exactly what is owed:
- *   1 the account's own profile rules the topic out  -> do_nothing (a verdict, not a gap)
- *   2 no exact results page for the topic            -> exact_serp
- *   3 the results page is out of date                -> fresh_serp
- *   4 the results answer two meanings of the phrase  -> intent
- *   5 the winners will not settle on one kind of page-> do_nothing, PARKED (see `park`)
- *   6 what a searcher wants is not established       -> intent
- *   7 under three ranked winners I can address       -> winners
- *   8 a page that could be the answer, unread        -> owned_content
- *   9 the page by page comparison is not in hand     -> page_intersection
- * EVERY REQUIREMENT MUST BE BUYABLE, OR IT IS A DECISION: gate 5 is a terminal park that says what reopens it,
- * and gate 7 counts winners I can ADDRESS because gate 9 compares addresses. GATE 9 IS EVIDENCE, NOT THE DOOR:
- * it exists to stop me duplicating a page of yours, so a subject no page of yours touches earns `create_new` without it once enough winners are READ, and a subject you do have a page for still waits for it.
- */
+/** Decide whether an investigated topic needs an owned page or a justified new page.
+ * Unread sources remain explicit acquisition requirements; a terminal verdict names its reopening condition.
+ * The shared winner comparison is evidence for the verdict, never factual support for publication copy.
+ * This module does not draft or persist pages. */
 
 import { isNoiseDomain } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";

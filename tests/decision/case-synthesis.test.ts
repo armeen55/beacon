@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} })); // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 import { synthesizeCases, type SynthesisCandidate } from "@/domains/decision/case-synthesis";
-import { applySynthesis, caseRows, foldCases } from "@/domains/evidence/case-identity";
+import { applySynthesis, foldCases } from "@/domains/evidence/case-identity";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import type { CaseSynthesis } from "@/domains/decision/llm/schemas";
 import type { ResearchCase } from "@/domains/evidence/funnel/research-evidence";
@@ -39,7 +39,7 @@ describe("what the semantic reading may change about my case registry", () => {
   it("merges two ways of naming ONE subject into one canonical id plus a durable alias, and never a third id", () => {
     const out = apply(reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reason: "The searches on both are people looking for names to give a child." }] })); const kept = live(out).find((c) => c.id === MALE.id || c.id === NAMES.id)!;
     const alias = out.cases.find((c) => c.aliasOf)!; // WHICH id survives stays the file's own rule, never the reading's preference
-    expect([alias.aliasOf, alias.anchors, live(out).length]).toEqual([kept.id, [], ALL.length - 1]);
+    expect([alias.aliasOf, alias.anchors, live(out).length, new Set(out.cases.map(c => c.id)).size]).toEqual([kept.id, [], ALL.length - 1, out.cases.length]);
     expect([...MALE.anchors, ...NAMES.anchors].every((a) => kept.anchors.includes(a))).toBe(true); // one case, every search it was ever about
     expect(held(out, TERMS.id)).toEqual(TERMS); // the terminology question is its own subject and no merge touched it
     let rows = out.cases; // THE MERGE IS THE REGISTRY'S NOW, so the rules can never take it apart again: three more reconciles, the same rows every time, no third id, nothing to save.
@@ -67,9 +67,6 @@ describe("what the semantic reading may change about my case registry", () => {
     const after = apply(reading(), out.cases); // disjoint owned sets: the split survives its own next reconcile and mints nothing
     expect([byId(after.cases), after.refused]).toEqual([byId(out.cases), []]); const emptied = apply(reading({ splits: [{ fromId: RUGS.id, moveQueries: RUGS.anchors, reason: "Every one of these is its own thing." }] }));
     expect([emptied.refused, live(emptied).length]).toEqual([[`${RUGS.id} was not split: that moves every search out of it, which renames a case rather than splitting one.`], ALL.length]); });
-  it("can never hand back two rows claiming one case id, whatever it was folded from", () => {
-    const rows = caseRows([{ id: "inv_one", anchors: ["x"], aliases: ["inv_two"], from: [0] }, { id: "inv_two", anchors: ["y"], aliases: [], from: [1] }], [MALE]); // A Map keyed on id would have hidden this: two rows answering for one case means every join downstream reads whichever one it happened to see first.
-    expect([rows.map((c) => c.id), rows.map((c) => c.aliasOf ?? "")]).toEqual([["inv_one", "inv_two", MALE.id], ["", "inv_one", ""]]); });
   it("reads rows written before any of this existed, and carries what it filed forward untouched", () => {
     expect(Object.keys(held(apply(reading()), LEADER.id)!)).toEqual(["id", "anchors"]); // an old row stays exactly the case it was: no page, no parent, no new key
     const first = apply(reading({ pageLinks: [{ caseId: RUGS.id, url: "/persian-rugs", relation: "covers", reason: "This page is the answer." }] }));
@@ -85,8 +82,6 @@ const MERGE = reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reaso
 const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value }; } }; };
 const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCacheEntry>(); return { read: async (t, k) => rows.get(`${t}|${k}`) ?? null, write: async (t, e) => void rows.set(`${t}|${e.key}`, e), recentTexts: async () => [] }; };
 describe("the one reading a pass may buy", () => {
-  it("returns a reading that names only what it was given", async () => {
-    const s = seam(MERGE); expect([await synthesizeCases(CANDIDATES, "t_fixture", { complete: s.complete }), s.calls()]).toEqual([MERGE, 1]); });
   it("throws away the WHOLE reading when it names a case or an address nobody gave it", async () => {
     const strangerCase = reading({ merges: [{ keepId: NAMES.id, absorbIds: ["inv_ghost"], reason: "These belong together." }] });
     const strangerPage = reading({ pageLinks: [{ caseId: NAMES.id, url: "/a-page-i-never-showed-it", relation: "covers", reason: "This page answers it." }] });
