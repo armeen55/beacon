@@ -1,19 +1,6 @@
 import "server-only";
 
-/**
- * owned-pages-store - THE durable inventory of an account's own website.
- *
- * One row per DISCOVERABLE owned URL with the state of our read of it. Discovery writes here;
- * the crawl reads its candidates from here and writes back what each read found. That is what
- * lets the product tell "known but never read" apart from "read and blocked" apart from "gone",
- * instead of a 150-URL JSON queue where an unreached page simply did not exist.
- *
- * Every operation is tenant-scoped in the query itself, never filtered after a wide read, and
- * every read is bounded and paged. FAILS CLOSED: a missing table (the pre-migration window) or a
- * failed write returns an honest empty/false with a log line naming the migration, never a
- * pretend success, because a discovery pass that silently wrote nothing would leave the crawl
- * reading an inventory that does not exist.
- */
+/** Tenant-scoped durable URL inventory. Reads are bounded; strict callers refuse failed reads. */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
@@ -29,7 +16,7 @@ export type DiscoveredPage = { url: string; via: DiscoveredVia };
 
 /** One inventory row, in the store's own words. */
 type OwnedPageRow = {
-  url: string;
+  tenant_id: string; url: string;
   discovered_via: DiscoveredVia;
   first_seen: string;
   last_seen_in_discovery: string;
@@ -53,7 +40,7 @@ const MAX_INVENTORY_PAGE = 500;
 const DAY_MS = 86_400_000;
 
 const COLUMNS =
-  "url, discovered_via, first_seen, last_seen_in_discovery, crawl_state, http_status, last_crawled_at, status_reconfirmed_at, content_hash, completeness, blocked_until, redirects_to, is_canonical_target";
+  "tenant_id, url, discovered_via, first_seen, last_seen_in_discovery, crawl_state, http_status, last_crawled_at, status_reconfirmed_at, content_hash, completeness, blocked_until, redirects_to, is_canonical_target";
 
 /** The table is not there yet. Told apart from a real failure so the pre-migration window reads as
  *  "apply the migration", not as an account with no website. */
@@ -124,13 +111,14 @@ export async function upsertDiscovery(tenantId: string, pages: readonly Discover
 /** One bounded page of inventory; completion callers may request a throwing read. */
 export async function readInventory(
   tenantId: string,
-  opts: { limit?: number; offset?: number; states?: OwnedPageRow["crawl_state"][]; strict?: boolean } = {},
+  opts: { limit?: number; offset?: number; afterUrl?: string; states?: OwnedPageRow["crawl_state"][]; strict?: boolean } = {},
 ): Promise<OwnedPageRow[]> {
   if (!tenantId?.trim()) return [];
   const limit = Math.max(1, Math.min(opts.limit ?? 100, MAX_INVENTORY_PAGE));
   const offset = Math.max(0, opts.offset ?? 0);
   try {
     let q = getSupabaseAdmin().from(TABLE).select(COLUMNS).eq("tenant_id", tenantId);
+    if (opts.afterUrl !== undefined) q = q.gt("url", opts.afterUrl);
     if (opts.states?.length) q = q.in("crawl_state", opts.states);
     const { data, error } = await q.order("url", { ascending: true }).range(offset, offset + limit - 1);
     if (error) {
@@ -138,6 +126,7 @@ export async function readInventory(
       if (opts.strict) throw error;
       return [];
     }
+    if (opts.strict && !Array.isArray(data)) throw new Error("[owned-pages] invalid inventory response: expected an array");
     return (data ?? []) as unknown as OwnedPageRow[];
   } catch (e) {
     failClosed("read", tenantId, e);

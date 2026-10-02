@@ -46,6 +46,19 @@ describe("the owned-page inventory: what the site says it has, and what my read 
     const out = await discover({ "https://own.com/sitemap.xml": urlset(Array.from({ length: MAX_DISCOVERED_URLS + 3 }, (_, i) => `https://own.com/p${i}`)) }); expect([out.pages.length, out.truncated, out.pages[0]!.via]).toEqual([MAX_DISCOVERED_URLS, 3, "sitemap"]);
     db.missing = "owned_pages"; // the pre-migration window is never reported as an empty website
     expect([await upsertDiscovery(T, [{ url: "/a", via: "sitemap" }]), await readInventory(T)]).toEqual([0, []]); });
+  it("pages beyond 500 owned URLs without mixing tenants and refuses a failed second page", async () => {
+    const urls = Array.from({ length: 501 }, (_, i) => `https://own.com/p${String(i).padStart(4, "0")}`);
+    db.owned = urls.flatMap(url => [{ ...FRESH, tenant_id: T, url }, { ...FRESH, tenant_id: OTHER, url, crawl_state: "blocked" }]);
+    const first = await readInventory(T, { limit: 1_000 }), cursor = first.at(-1)!.url;
+    const second = await readInventory(T, { afterUrl: cursor, states: ["uncrawled"] });
+    expect([first.length, cursor, second.map(row => row.url), second.map(row => row.tenant_id), (await readInventory(T)).length, (await readInventory(T, { offset: 500 })).map(row => row.url), await readInventory(T, { afterUrl: cursor, states: ["blocked"] })]).toEqual([500, urls[499], [urls[500]], [T], 100, [urls[500]], []]);
+    db.fails = true;
+    await expect(readInventory(T, { afterUrl: cursor, strict: true })).rejects.toMatchObject({ code: "500" });
+    expect(await readInventory(T, { afterUrl: cursor })).toEqual([]);
+    const client = db.client as { from: (table: string) => Record<string, unknown> }, originalFrom = client.from;
+    const nullSuccess = vi.spyOn(client, "from").mockImplementation(table => { const query = originalFrom(String(table)); query.range = async () => ({ data: null, error: null }); return query; });
+    try { await expect(readInventory(T, { afterUrl: cursor, strict: true })).rejects.toThrow("expected an array"); expect(await readInventory(T, { afterUrl: cursor })).toEqual([]); } finally { nullSuccess.mockRestore(); }
+  });
   it("preserves crawl truth across rediscovery and fairly renews it at seven days", async () => {
     await upsertDiscovery(T, [{ url: "https://own.com/a", via: "sitemap" }]); const firstSeen = (await readInventory(T))[0]!.first_seen;
     await markCrawled(T, "https://own.com/a", { httpStatus: 200, contentHash: "h1", completeness: "complete" }, NOW);

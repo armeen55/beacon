@@ -169,7 +169,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       throw new Error("This pass produced changes but could not save a single one, so your last release was kept instead of stamping a new time on work that cannot be loaded back.");
     }
     if (produced?.outcome === "evidence_unreadable") {
-      throw new Error("Your Google Search Console data could not be read just now, so your last release was kept instead of publishing a list built without it.");
+      throw new Error("Your saved evidence could not be read completely just now, so your last release was kept instead of publishing an incomplete list.");
     }
     const { loadShippedChangesForTenant } = await import("@/domains/measurement");
     const ledger = await loadShippedChangesForTenant(tenantId).catch(() => null);

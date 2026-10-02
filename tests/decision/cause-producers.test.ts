@@ -9,7 +9,7 @@ import { validateProposal } from "@/domains/decision/validate-proposal"; import 
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts"; import { researchingCards } from "@/domains/decision/authorization"; import type { CauseFinding } from "@/domains/decision/diagnosis";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/lib/cost/spend-reservations", async () => { const h = await import("../helpers/atomic-spend"); return { default: h.atomicSpend, runWithProposalWorkKey: h.runWithProposalWorkKey, runWithResearchRun: h.runWithResearchRun, researchRunSpendUsd: h.researchRunSpendUsd }; });
-vi.mock("@/domains/decision/proposal-seats", () => ({ default: { loadProposalSeats: async () => [], seatFor: (id: string) => id } }));
+vi.mock("@/domains/evidence/scanning/owned-pages-store", async orig => ({ ...(await orig<object>()), readInventory: async () => [] })); vi.mock("@/domains/decision/proposal-seats", () => ({ default: { loadProposalSeats: async () => [], seatFor: (id: string) => id } }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 const sourceEnv = vi.hoisted(() => ({ rows: [] as FactCheck[] }));
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => ({ ...(await orig<Record<string, unknown>>()), readFactChecks: async (_tenant: string, page?: string) => page ? sourceEnv.rows.filter((row) => row.page === page) : sourceEnv.rows }));

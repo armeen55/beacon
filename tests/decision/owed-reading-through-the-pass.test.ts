@@ -7,7 +7,7 @@ vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<R
   terminalWorkKeys: async () => new Set<string>(), terminalProposalHistory: async () => ({ fingerprints: new Set<string>(), legacyMutationKeys: new Set<string>() }),
   saveChangeProposal: async (p: ChangeProposal, _t?: unknown, keep?: (r: ChangeProposal) => void, expected?: ChangeProposal) => { if (expected && env.race) { env.race = false; store.rows.set(p.id, { ...expected, status: "implemented_pending_verification" }); return "blocked"; } if (expected && store.rows.get(p.id) !== expected) return "blocked"; store.rows.set(p.id, p); env.saves++; keep?.(p); return "saved"; },
   withdrawnProposalIds: async () => store.withdrawn, withdrawChangeProposal: async () => "retired" as const }));
-vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
+vi.mock("@/domains/evidence/scanning/owned-pages-store", async orig => ({ ...(await orig<object>()), readInventory: async () => [] })); vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => ({ ...(await orig<Record<string, unknown>>()), readFactChecks: async () => env.checked }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadOwnedPageBodies: async () => { if (!env.bodies) throw new Error("no body store in this fixture"); return env.bodies; } }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "acct-reef", domain: "acct-reef.example", growth_goal: null }), basisTag: () => "basis_rv2" }));
