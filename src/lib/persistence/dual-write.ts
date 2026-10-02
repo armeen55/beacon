@@ -186,16 +186,17 @@ export async function syncPageSnapshots(
   const stamped = tenantizeRows(rows, tenantId, "page_snapshots").map((row) => {
     const capture = row.content_capture;
     if (!capture || typeof capture !== "object" || Array.isArray(capture)) return row;
-    return {
-      ...row,
-      content_capture: {
-        ...capture,
-        jsonLd: Array.isArray(capture.jsonLd) ? [...capture.jsonLd] : capture.jsonLd,
-      },
-    };
+    const { validation: _untrusted, ...source } = capture;
+    const held: PageSnapshot = { ...row, content_capture: {
+      ...source,
+      jsonLd: Array.isArray(source.jsonLd) ? [...source.jsonLd] : source.jsonLd,
+    } };
+    if (source.complete === true) {
+      const validation = extractPageSnapshot.captureValidation(held);
+      if (!validation) throw new Error("[dual-write] page_snapshots: complete capture disagrees with its derived content fields");
+      held.content_capture!.validation = validation;
+    }
+    return held;
   });
-  if (stamped.some((row) => row.content_capture?.complete === true && !extractPageSnapshot.matchesCapture(row))) {
-    throw new Error("[dual-write] page_snapshots: complete capture disagrees with its derived content fields");
-  }
   await dualWriteUpsert("page_snapshots", stamped as unknown as AnyRow[], "id");
 }

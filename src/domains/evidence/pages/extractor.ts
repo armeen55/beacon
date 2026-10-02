@@ -302,10 +302,7 @@ export function extractPageSnapshot(
   }
   if (bodyText.length > BODY_TEXT_CEILING) structuralWarnings.push(`body_text_truncated: kept the first ${BODY_TEXT_CEILING} characters of ${bodyText.length}`);
 
-  // ── Location + service terms (from business config or inline defaults) ──
-  // The caller supplies the account's loaded BusinessProfile (async reads
-  // live upstream). Missing profile fails GENERIC: never-match, never
-  // another business's vocabulary.
+  // Terms come only from the supplied account profile; absent profiles match nothing.
   const locationRegex = profile ? locationRegexFrom(profile) : /(?!)/g;
   const serviceRegex = profile ? serviceRegexFrom(profile) : /(?!)/g;
   const locationTerms = extractTermsByPattern(flat, locationRegex);
@@ -316,17 +313,14 @@ export function extractPageSnapshot(
     canonicalUrl !== null && !urlsEquivalent(canonicalUrl, url);
 
   // ── Hashes ──
-  // content_hash hashes the text I actually HOLD, so "unchanged" means the content on file is the
-  // content on file, never a claim about bytes nobody kept.
+  // content_hash identifies held text, never content outside the capture.
   const dedupedSchemaTypes = [...new Set(schemaTypes)];
   const contentHash = hash(bodyTextHeld);
   const headingsHash = hash(JSON.stringify(["headings-v3", contentRoot.find("h1,h2,h3,h4,h5,h6").toArray().map((el) => [$content(el).prop("tagName")?.toLowerCase(), $content(el).text().trim()])]));
   const faqHash = hash(JSON.stringify(["answers-v2", faqMaterial]));
   const schemaHash = hash(JSON.stringify(["values-v2", schemaMaterial.sort()]));
 
-  // ── Extraction certainty ── ONLY real body content confirms a read. JSON-LD used to vouch on its own,
-  // so a client-rendered page with zero extracted words graded "confirmed" (the 500-surname page stored
-  // as blank while ranking position 4.9): markup in the head proves nothing about the body a reader sees.
+  // Real body words determine extraction certainty; head markup cannot confirm visible content.
   const hasBodyContent = wordCount > 50;
   const extractionCertainty: "confirmed" | "uncertain" = hasBodyContent && !clientShell && !hiddenListUnqualified ? "confirmed" : "uncertain";
 
@@ -363,12 +357,9 @@ export function extractPageSnapshot(
     schema_validation_warnings:
       schemaValidationWarnings.length > 0 ? schemaValidationWarnings : undefined,
     table_count: tableCount,
-    // Plan A + B1 (2026-04-20): broader page-content extraction. All four
-    // fields optional on the type so prior snapshots remain valid.
+    // Optional projections preserve legacy snapshots.
     h3_list: h3List.length > 0 ? h3List : undefined,
-    // ALWAYS A STRING on a page this crawler read, even when the page's own words are none: an
-    // absent column means a pre-2026-08-03 sample-era row, so writing undefined here made a
-    // genuinely empty page indistinguishable from one we never held whole.
+    // Empty held text is distinct from an absent legacy sample-only projection.
     body_text: bodyTextHeld,
     content_capture: { ...contentCapture, sourceRevision },
     body_paragraph_sample:
@@ -383,7 +374,7 @@ export function extractPageSnapshot(
 /** Check held main-content projections without rewriting the observed source or metadata. */
 extractPageSnapshot.matchesCapture = (row: Partial<Record<keyof PageSnapshot, unknown>>): boolean => {
   const capture = row.content_capture as PageSnapshot["content_capture"];
-  if (capture?.version !== 1 || typeof capture.mainHtml !== "string" || typeof capture.complete !== "boolean"
+  if (!capture || typeof capture !== "object" || Array.isArray(capture) || capture.version !== 1 || typeof capture.mainHtml !== "string" || typeof capture.complete !== "boolean"
     || !Array.isArray(capture.jsonLd) || !capture.jsonLd.every((block) => typeof block === "string")
     || capture.mainHtml.length + capture.jsonLd.reduce((size, block) => size + block.length, 0) > BODY_TEXT_CEILING) return false;
   if (typeof row.url !== "string" || typeof row.page_id !== "string" || typeof row.tenant_id !== "string" || !row.tenant_id) return false;
@@ -391,6 +382,16 @@ extractPageSnapshot.matchesCapture = (row: Partial<Record<keyof PageSnapshot, un
     const derived = extractPageSnapshot(`<html><body>${capture.mainHtml}</body></html>`, row.url, row.page_id, row.tenant_id);
     return (["h1", "word_count", "content_hash", "headings_hash", "body_text"] as const).every((field) => row[field] === derived[field]);
   } catch { return false; }
+};
+/** Contract 1 hashes UTF-8 byte-length-prefixed scalars, not JSON serialization. */
+extractPageSnapshot.captureValidation = (row: Partial<Record<keyof PageSnapshot, unknown>>): NonNullable<PageSnapshot["content_capture"]>["validation"] | null => {
+  const capture = row.content_capture as PageSnapshot["content_capture"];
+  if (capture?.complete !== true || typeof row.word_count !== "number" || !Number.isSafeInteger(row.word_count)
+    || row.word_count < 0 || ![row.h1, row.content_hash, row.headings_hash, row.body_text].every(value => value === null || typeof value === "string")
+    || !extractPageSnapshot.matchesCapture(row)) return null;
+  const values = [capture.mainHtml, row.h1, row.word_count, row.content_hash, row.headings_hash, row.body_text];
+  const material = values.map(value => value === null ? "-1:" : `${Buffer.byteLength(String(value), "utf8")}:${value}`).join("");
+  return { contract: 1, materialHash: createHash("sha256").update(`beacon-capture-v1|${material}`, "utf8").digest("hex") };
 };
 
 /** Normalize builder placeholders and whitespace in readable text projections. */

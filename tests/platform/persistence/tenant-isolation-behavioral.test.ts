@@ -35,11 +35,11 @@ describe("dual-write tenant validation (fires before any I/O)", () => { // â”€â”
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", "")).rejects.toThrow(/tenantId must be a non-empty string/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).rejects.toThrow(/no section may reach the supabase client/);});
   it("validates every complete capture before writing and preserves partial and legacy evidence", async () => {
-    const snapshot = extractPageSnapshot("<main><h1>Owned page</h1><p>Useful original words stay on file.</p></main>", "https://own.example/page", "page", TENANT), original = JSON.stringify(snapshot); let calls = 0;
-    try { mem.upsert = (_table, rows) => { calls++; return { data: rows, error: null }; };
+    const snapshot = { ...extractPageSnapshot("<main><h1>Owned page</h1><p>Useful original words stay on file.</p></main>", "https://own.example/page", "page", TENANT) }; snapshot.content_capture!.validation = { contract: 1, materialHash: "caller supplied" }; const validation = extractPageSnapshot.captureValidation(snapshot), original = JSON.stringify(snapshot); let calls = 0;
+    try { mem.upsert = (_table, rows) => { calls++; expect((rows[0] as typeof snapshot).content_capture?.validation).toBeUndefined(); return { data: rows, error: null }; };
       for (const field of ["h1", "word_count", "content_hash", "headings_hash", "body_text"] as const) await expect(syncPageSnapshots([snapshot, { ...snapshot, id: `${snapshot.id}::local-malformed`, [field]: field === "word_count" ? -1 : "Wrong projection" }], TENANT)).rejects.toThrow(/derived content fields/);
       expect(calls).toBe(0); await expect(syncPageSnapshots([{ ...snapshot, tenant_id: OTHER }], TENANT)).rejects.toThrow(/tenant mismatch/); await expect(syncPageSnapshots([], "")).rejects.toThrow(/tenantId must be a non-empty string/);
-      await syncPageSnapshots([{ ...snapshot, content_capture: undefined }], TENANT);
+      for (const content_capture of [undefined, { validation: snapshot.content_capture!.validation } as typeof snapshot.content_capture]) await syncPageSnapshots([{ ...snapshot, content_capture }], TENANT);
       for (const complete of [true, false]) {
         const { tenant_id: _scope, ...unscoped } = snapshot;
         const rows = Array.from({ length: 501 }, (_, index) => ({ ...unscoped, id: `${snapshot.id}::local-${index}`, ...(index === 0 ? {} : { tenant_id: index < 4 ? [undefined, null, "", TENANT][index] : TENANT }), h1: index === 500 && !complete ? "Partial projection" : snapshot.h1, content_capture: { ...snapshot.content_capture!, complete: index === 500 ? complete : true, jsonLd: [...snapshot.content_capture!.jsonLd] } } as typeof snapshot));
@@ -47,7 +47,7 @@ describe("dual-write tenant validation (fires before any I/O)", () => { // â”€â”
         mem.upsert = (_table, chunk) => {
           if (chunk.length === 500) Object.assign(capture, { mainHtml: "<main><h1>Caller mutation</h1></main>", complete: true });
           if (chunk.length === 500) capture.jsonLd.push('{"callerMutation":true}');
-          expect(chunk.map(row => [(row as typeof snapshot).tenant_id, (row as typeof snapshot).content_capture])).toEqual(chunk.map(row => [TENANT, { ...snapshot.content_capture!, complete: (row as typeof snapshot).id.endsWith("-500") ? complete : true }]));
+          expect(chunk.map(row => [(row as typeof snapshot).tenant_id, (row as typeof snapshot).content_capture, Object.hasOwn((row as typeof snapshot).content_capture!, "validation")])).toEqual(chunk.map(row => { const full = (row as typeof snapshot).id.endsWith("-500") ? complete : true; return [TENANT, { ...snapshot.content_capture!, complete: full, validation: full ? validation : undefined }, full]; }));
           return { data: chunk, error: null };
         };
         await syncPageSnapshots(rows, TENANT);

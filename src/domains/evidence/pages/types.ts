@@ -118,38 +118,21 @@ export type PageSnapshot = {
   /** All internal links on this page — href + anchor text. Populated after scan. */
   internal_links?: { href: string; anchor_text: string }[];
 
-  // ── Plan A + B1 (2026-04-20): broader page-content extraction ──
-  // All new fields are optional so pre-existing snapshots stay valid.
-  // Captured in `extractor.ts`; consumed by the keyword-gap scanner's
-  // coverage check to reduce false "not covered" signals.
+  // Optional content projections preserve legacy snapshots.
 
   /** All <h3> text in document order. Parallel to `h2_list`. Cap 30. */
   h3_list?: string[];
-  /** THE WHOLE de-chromed main content of the page, capped at 100,000 characters (a cut is recorded
-   *  in `structural_warnings` as `body_text_truncated:`). This is what `content_hash` hashes and
-   *  what lets a reader answer "no, this page does not say that". Absent on pre-2026-08-03
-   *  snapshots, which is exactly what marks them as sample-era captures. */
+  /** Held main text, capped at 100KB with a truncation warning; absent on legacy sample-only captures. */
   body_text?: string;
   /** Observed source markup and JSON-LD, never publication copy or rendered-visibility certification. */
   content_capture?: { version: 1; mainHtml: string; jsonLd: string[]; complete: boolean; sourceRevision?: string;
+    validation?: { contract: 1; materialHash: string };
     renderedAttempt?: { sourceRevision: string; revision: string; cacheKey: string; taskId: string; outcome: "unchanged_incomplete" } };
-  /** Ordered main-content excerpt, pulled from <main>/<article> (fallback:
-   *  <body> minus <nav>/<footer>/<header>/<aside>). Cap 20 entries x 300
-   *  chars each (~6k chars total, N19 2026-07-02, was 10x300/~3k under
-   *  Plan A/B1). Prefers real <p> tags; when a page has zero usable
-   *  paragraphs (e.g. a builder that renders body copy in leaf
-   *  divs/spans/list items instead of <p>), falls back to leaf block-level
-   *  text nodes above an 8-word floor. Explicitly excludes nav/footer
-   *  boilerplate so cross-page menus don't create false "covered" signals. */
+  /** Up to 20 main-content excerpts of 300 characters; paragraphs or fallback leaf blocks of at least eight words, excluding navigation. */
   body_paragraph_sample?: string[];
-  /** Text from list/card/tile elements inside the content area. Heuristic:
-   *  <li>, <article>, or class-names matching /\b(card|tile|item|neighborhood|
-   *  service|offering)\b/i — restricted to the content selector, so
-   *  sidebar/nav children don't leak in. Cap 20 entries × 120 chars. */
+  /** Up to 20 content-root list/card/item excerpts of 120 characters, excluding sidebar/navigation. */
   card_texts?: string[];
-  /** Schema entity names from JSON-LD Service/Offer/Organization/
-   *  BreadcrumbList items (.name fields). Cap 20 entries × 100 chars.
-   *  Distinct from `schema_types` which only captures @type strings. */
+  /** Up to 20 distinct JSON-LD Service/Offer/Organization/BreadcrumbList names of 100 characters. */
   schema_entity_names?: string[];
 
   /** Owning tenant. */
