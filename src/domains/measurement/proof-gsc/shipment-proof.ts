@@ -15,7 +15,7 @@ function components(r: Claim) {
 
 /** One applied-unit identity and checker contract. Old observations remain history, not delivery permission. */
 export const SHIPMENT_PROOF = {
-  contract: 6 as const, // Older structured receipts could certify words without their declared links or exact destination dependencies. Keep history; requalify under the current checker.
+  contract: 7 as const, // Earlier FAQ receipts could certify JSON-LD that disagreed with visible answers. Requalify under the current checker.
   components,
   of(r: Claim, inspectedEvidence?: string): NonNullable<ShipmentVerification["proof"]> | null {
     const at = Date.parse(r.implementedAt ?? ""), pieces = components(r);
