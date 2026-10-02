@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { BundleComponent } from "@/domains/decision";
 import { confirmDangerousChangeAction, dismissProposalAction, finishOneProposalAction, markProposalImplementedAction, reviewDraftAction } from "./actions";
@@ -87,10 +87,7 @@ function useMarkQueueFlush(): string | null {
   return said;
 }
 
-/** One copy control serves Today and Changes; `onToast` is the list's optional echo. */
-/** Carry the displayed link words and destination together. */
 type CopyLink = { href: string; anchor: string; /** The page the copy lands on: the clipboard's anchor is written absolute off its host, so a pasted link resolves anywhere. */ pageUrl?: string | null } | null;
-/** The anchor words, marked inside one line of copy: `mark` wraps them, and a line that does not carry them is returned whole. */
 const withAnchor = (line: string, links: readonly { text: string; href: string }[], escape: (s: string) => string): string => {
   let from = 0;
   const ordered = links.map(link => ({ ...link, at: line.indexOf(link.text) })).sort((a, b) => a.at - b.at);
@@ -121,28 +118,31 @@ export function clipboardPayload(text: string, units?: BundleComponent["units"],
   return { html, plain };
 }
 
+let latestCopyIntent = 0;
 export function CopyButton({ text, units, link = null, label, onToast }: { text: string; units?: BundleComponent["units"]; link?: CopyLink; label: string; onToast?: (t: string) => void }) {
-  const [said, setSaid] = useState<string | null>(null);
-  const say = (s: string, ms: number) => { setSaid(s); setTimeout(() => setSaid(null), ms); };
-  const copy = async () => {
-    const { html, plain } = clipboardPayload(text, units, link);
+  const [said, setSaid] = useState<string | null>(null), [htmlSaid, setHtmlSaid] = useState<string | null>(null), [busy, setBusy] = useState(false), pending = useRef(false);
+  const { html, plain } = clipboardPayload(text, units, link);
+  const structured = !!units?.some((u) => u.kind !== "paragraph") || (units?.length ?? 0) > 1 || html.includes("<a href=");
+  const say = (s: string, source: boolean) => { const set = source ? setHtmlSaid : setSaid; set(s); setTimeout(() => set(null), 4000); onToast?.(s); };
+  const copy = async (source: boolean, intent: number): Promise<string | null> => {
+    if (source) { await navigator.clipboard.writeText(html); return intent === latestCopyIntent ? "HTML copied" : null; }
+    if (structured && typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+      try { await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([plain], { type: "text/plain" }) })]); return intent === latestCopyIntent ? "Copied" : null; } catch { /* plain text remains available */ }
+    }
+    if (intent !== latestCopyIntent) return null;
     await navigator.clipboard.writeText(plain);
-    if (typeof ClipboardItem === "undefined" || !navigator.clipboard.write) return "Copied";
-    try { await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([plain], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]); } catch { return "Copied"; }
-    return "Copied";
+    return intent === latestCopyIntent ? structured ? "Text copied · use Copy HTML" : "Copied" : null;
   };
+  const press = (source: boolean) => { if (pending.current) return; const intent = ++latestCopyIntent; pending.current = true; setBusy(true); void copy(source, intent).then((message) => { if (message) say(message, source); }, () => { if (intent === latestCopyIntent) say(source ? "HTML copy failed" : "Copy it by hand", source); }).finally(() => { pending.current = false; setBusy(false); }); };
+  const buttonClass = "min-h-11 shrink-0 rounded-md border border-border px-3 py-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50";
   return (
-    <button type="button" data-copy-after="true" aria-live="polite"
-      onClick={() => { copy().then(
-        (message) => { say(message, 4000); onToast?.(message); },
-        () => { say("Copy it by hand", 4000); onToast?.("Your clipboard could not be reached, so please copy it by hand."); }); }}
-      className="min-h-11 shrink-0 rounded-md border border-border px-3 py-1 text-[12px] font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2">
-      {said ?? label}
-    </button>
+    <span className="inline-flex flex-wrap gap-2">
+      <button type="button" data-copy-after="true" aria-live="polite" disabled={busy} onClick={() => press(false)} className={buttonClass}>{said ?? label}</button>
+      {structured ? <button type="button" data-copy-html="true" aria-live="polite" disabled={busy} title="Paste the HTML into your CMS HTML or source editor." onClick={() => press(true)} className={buttonClass}>{htmlSaid ?? "Copy HTML · source editor"}</button> : null}
+    </span>
   );
 }
 
-/** Explicit preparation or version-bound dismissal; global preparation never skips a selected proposal. */
 export function SetAsideChange({ proposalId = "", finishable = false, prepare = false, prepareNext = false, displayedVersion, historyOnly = false, onFinished }: { proposalId?: string; finishable?: boolean; prepare?: boolean; prepareNext?: boolean; displayedVersion?: string; historyOnly?: boolean; onFinished?: () => void }) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
