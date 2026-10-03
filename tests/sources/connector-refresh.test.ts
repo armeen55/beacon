@@ -1,4 +1,3 @@
-/** Connector refresh ledger: recordSourceRefresh outcome classification and the honest Recent-upkeep sentences (retired sources render nothing false). */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({})); // ── on-use refresh + clarity: connector-store overrides ──────────────
 const TOKEN = { provider: "clarity", api_token: "tok", connected_at: "2026-06-12T00:00:00Z" } as unknown;
@@ -18,7 +17,7 @@ vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({ syncClarityDaily
 vi.mock("@/domains/account/tenants/store", () => ({ getTenant: vi.fn(async () => ({ domain: "example.com" })) }));
 import { syncSucceeded } from "@/lib/connectors/on-use-refresh";
 import { fetchClarityUrlMetrics } from "@/lib/connectors/clarity/client"; // THE DAY THIS FIXTURE CLAIMS MUST BE THE DAY THE CODE READS. Building it with `toISOString()` made a UTC day while `due-work` compares against the PACIFIC reporting day, so from 17:00 Pacific until midnight the two disagreed, `stockClosed` went false, and this test failed on every machine including CI for about seven hours a day.
-import { reportingDay } from "@/lib/reporting-day";
+import { reportingDay } from "@/lib/reporting-day"; import { ingestionGapLine } from "@/domains/evidence/gsc/ingestion-gaps";
 import { resolveGscAccessToken } from "@/lib/connectors/gsc/search-analytics"; import { computeRefreshDateRange } from "@/lib/connectors/ga4/persist-url-traffic"; import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 beforeEach(() => { state.connected = { google_gsc: true, google_ga4: true, clarity: true }; state.clarityToken = TOKEN; state.owner = true; state.retryAfter = null; state.patches = []; state.persisted = []; }); afterEach(() => { vi.unstubAllGlobals(); });
 const NO_WINNERS = { winners: [], serps: [], own: "own.example" };  // nothing on file at all: no winner, no results page bought, and the account's own address, which never wins its own searches
@@ -62,6 +61,7 @@ describe("Google grants self-heal after any idle period", () => { const stale = 
 describe("computeRefreshDateRange", () => {
   it("cold start pulls 420 days; a stored date re-reads 7 days behind it; the floor and today bound both ends", () => { const now = new Date("2026-09-14T15:00:00Z"); const win = (d: string | null) => { const r = computeRefreshDateRange(d, now); return `${r.startDate}..${r.endDate}`; };
     expect([win(null), win("2026-09-10"), win("2024-01-01"), win("2026-12-01")]).toEqual(["2025-07-21..2026-09-14", "2026-09-03..2026-09-14", "2025-07-21..2026-09-14", "2026-09-14..2026-09-14"]); });}); // A CONNECTIONS FAILURE IS THE OPERATOR'S OWN SENTENCE, never the exception's: raw store and network messages used to reach the screen as if they were advice.
+it("names missing Google days without promising a daily retry or guaranteed recovery", () => { const [none, one, many] = [[], ["2026-09-26"], Array.from({ length: 11 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`)].map(gapDates => ingestionGapLine({ gapDates })); expect([none, one?.includes("Sep 26"), one?.includes("completed Search Console refresh can retry"), one?.includes("next daily run"), many?.includes("up to 10"), many?.includes("recovered")]).toEqual([null, true, true, false, true, false]); });
 describe("what Connections says when something goes wrong", () => {
   it("hands back plain language instead of the raw error, and a member who is not the owner gets the owner refusal before anything runs", async () => {
     const { getGoogleAuthUrl, disconnectClarity } = await import("@/app/(shell)/settings/connectors/actions"); expect(await getGoogleAuthUrl("gsc")).toEqual({ url: null, error: "The Google sign in could not start just now. Try again in a moment." });

@@ -99,10 +99,7 @@ async function loadConnectorsPageData() {
 
   const ga4StaleCopy = staleCopy(googleGa4, "Google Analytics");
 
-  // BUG 3 (2026-07-11): per-source refresh-ledger facts for the "last pulled /
-  // data through / result" strip. Read-only, fail-soft: any error self-hides the
-  // strip rather than blocking the page. Sourced from the SAME ledger the cron,
-  // manual, and on-use refresh paths all record into.
+  // Saved refresh facts; unavailable history remains explicit on each source card.
   let refreshLedger: RefreshLedgerFacts = {};
   try {
     const tid = await currentTenantId();

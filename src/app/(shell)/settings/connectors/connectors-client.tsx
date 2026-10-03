@@ -67,7 +67,7 @@ type Props = {
   rollup: ConnectorRollup;
   /** BUG 3 (2026-07-11), per-source refresh-ledger facts for the "last checked /
    *  data through / result" strip, keyed by ledger source name. Composed
-   *  server-side from latestRefreshBySource; self-hiding when absent. */
+   *  server-side from latestRefreshBySource; unknown when absent. */
   refreshLedger?: RefreshLedgerFacts;
 };
 
@@ -183,11 +183,11 @@ function formatDataDate(ymd?: string | null): string | null {
  * BUG 3 (2026-07-11): the per-source refresh-ledger line. States, in plain
  * English, when this source was last checked, what date its stored data reached,
  * and whether that check actually pulled a complete report - the facts the operator asked
- * for. Self-hides when there is no ledger row yet. This is the surface that
+ * for. Names an unavailable receipt when none can be read. This is the surface that
  * makes a "synced today but the newest data is weeks old" partial visible.
  */
 function RefreshLedgerLine({ fact }: { fact?: RefreshLedgerFact }) {
-  if (fact == null) return null;
+  if (fact == null) return <p className="text-[12px] text-muted-foreground" data-refresh-ledger="unavailable">Refresh receipt unavailable; last check and data-through date unconfirmed.</p>;
   const when = formatDate(fact.lastChecked);
   const through = formatDataDate(fact.dataThrough);
   const base =

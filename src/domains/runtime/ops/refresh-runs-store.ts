@@ -286,7 +286,7 @@ export async function listRecentRefreshRuns(
       .limit(limit);
     if (opts.source != null) q = q.eq("source", opts.source);
     const { data, error } = await q;
-    if (error != null || !Array.isArray(data) || data.some(row => !row || typeof row !== "object" || Array.isArray(row) || row.tenant_id !== tenantId || typeof row.id !== "string" || !row.id.trim())) {
+    if (error != null || !Array.isArray(data) || data.some(row => !row || typeof row !== "object" || Array.isArray(row) || row.tenant_id !== tenantId || !((typeof row.id === "string" && row.id.trim()) || (typeof row.id === "number" && Number.isSafeInteger(row.id) && row.id > 0)))) {
       if (opts.strict) throw new Error("refresh history unavailable");
       log.warn("[refresh-runs-store] list failed", {
         tenantId,

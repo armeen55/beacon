@@ -24,7 +24,7 @@ import { addDays } from "@/domains/measurement/outcome-windows";
 import { isDueForMeasure, outcomeStateOf } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import { loadShippedChanges, loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification, upsertShippedChange, type ShipmentVerification, type ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import { SHIPMENT_PROOF } from "@/domains/measurement/proof-gsc/shipment-proof";
-import { listRecentRefreshRuns } from "@/domains/runtime/ops/refresh-runs-store";
+import { latestRefreshBySource, listRecentRefreshRuns } from "@/domains/runtime/ops/refresh-runs-store";
 import { verifyShipmentNow } from "@/domains/measurement/verify-shipment";
 import { learningFromShipments, treatmentLearning } from "@/domains/measurement/treatment-learning";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
@@ -152,14 +152,14 @@ it("replaces a contract-4 confirmation when the current structural read disagree
   await upsertShippedChange({ ...after, verification: { ...verification("blocked"), reason: "stale_reading", proof: null, checks: 2, rechecks: history } }); const corrected = (await loadShippedChangesForTenant(T))[0]!; expect([corrected.verifiedLive, SHIPMENT_PROOF.of(corrected), corrected.verification?.rechecks]).toEqual([false, null, history]); await recordVerification(T, record.id, { ...corrected.verification!, recheckAfter: "2026-08-05", rechecks: history.map(h => Object.fromEntries(Object.entries(h).reverse())) as ShipmentVerification["rechecks"] });
   expect((await loadShippedChangesForTenant(T))[0]!.verification?.rechecks).toEqual(history); for (const status of ["differs", "verified", "verified"] as const) { await recordVerification(T, record.id, verification(status)); expect((await loadShippedChangesForTenant(T))[0]!.verification?.rechecks).toEqual(history); } });
 describe("when canonical Shipment persistence is unavailable", () => {
-  it.each(["PGRST204", "42P01", "57014", "offline", null, {}, [null], [{ tenant_id: "other", id: "foreign" }], [{ tenant_id: T, id: " " }]].map(reply => ({ reply, code: typeof reply === "string" ? reply : "malformed" })))("refuses unavailable or malformed SQL truth without a substitute ledger", async ({ code, reply: sample }) => {
-    if (code === "offline") db.state.offline = true; else db.state.upsertError = { code, message: "canonical write unavailable" };
-    const record = await ship(); await expect(upsertShippedChange(record)).rejects.toThrow(code === "offline" ? "no Supabase" : "upsert failed");
+  it.each(["PGRST204", "42P01", "57014", "offline", null, {}, [null], [{ tenant_id: "other", id: 1474 }], ...[0, -1, Number.MAX_SAFE_INTEGER + 1, null, " "].map(id => [{ tenant_id: T, id }])].map(reply => ({ reply, code: typeof reply === "string" ? reply : "malformed" })))("refuses unavailable or malformed SQL truth without a substitute ledger", async ({ code, reply: sample }) => {
+    if (code === "offline") db.state.offline = true; else db.state.upsertError = { code, message: "canonical write unavailable" }; const record = await ship(); await expect(upsertShippedChange(record)).rejects.toThrow(code === "offline" ? "no Supabase" : "upsert failed");
     expect(await recordVerification(T, record.id, verification("verified"))).toBe(false);
-    if (typeof sample !== "string") db.state.readResponse = sample;
-    await expect(loadShippedChanges()).rejects.toThrow(); await expect(loadShippedChangesForTenant(T)).rejects.toThrow();
-    await expect(listRecentRefreshRuns(T, { strict: true })).rejects.toThrow();
-    expect([await listRecentRefreshRuns(T), db.state.rows]).toEqual([[], []]); });
+    if (typeof sample !== "string") db.state.readResponse = sample; await expect(loadShippedChanges()).rejects.toThrow(); await expect(loadShippedChangesForTenant(T)).rejects.toThrow();
+    await expect(listRecentRefreshRuns(T, { strict: true })).rejects.toThrow(); expect([await listRecentRefreshRuns(T), db.state.rows]).toEqual([[], []]); });
+  it("reads the three saved numeric refresh IDs and still accepts historical string IDs", async () => {
+    const base = { tenant_id: T, started_at: "2026-09-29T12:00:00Z", finished_at: "2026-09-29T12:01:00Z", result: "ok" }; db.state.readResponse = [{ ...base, id: 1476, source: "ga4", latest_data_date: "2026-09-29" }, { ...base, id: 1475, source: "clarity", latest_data_date: "2026-09-28" }, { ...base, id: 1474, source: "gsc", latest_data_date: "2026-09-26" }];
+    const latest = await latestRefreshBySource(T); expect([latest.gsc?.id, latest.clarity?.id, latest.ga4?.id, latest.gsc?.latest_data_date, latest.ga4?.latest_data_date]).toEqual(["1474", "1475", "1476", "2026-09-26", "2026-09-29"]); db.state.readResponse = [{ ...base, id: "legacy-id", source: "gsc" }]; expect((await listRecentRefreshRuns(T, { strict: true }))[0]?.id).toBe("legacy-id"); });
   it("preserves the canonical record when a verification write fails, then recovers", async () => {
     const record = await ship(); await upsertShippedChange(record); const before = structuredClone(db.state.rows);
     db.state.updateError = { code: "PGRST204", message: "verification column unavailable" };

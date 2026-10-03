@@ -140,12 +140,12 @@ export function ingestionGapLine(
   const gaps = report.gapDates;
   if (gaps.length === 0) return null;
   if (gaps.length === 1) {
-    return `1 day of Google data is missing (${monthDay(gaps[0]!)}). It is pulled again automatically on the next daily run.`;
+    return `1 day of Google data is missing (${monthDay(gaps[0]!)}). A completed Search Console refresh can retry this day.`;
   }
   const first = monthDay(gaps[0]!);
   const last = monthDay(gaps[gaps.length - 1]!);
   if (gaps.length <= repullCapPerNight) {
-    return `${gaps.length} days of Google data are missing between ${first} and ${last}. They are pulled again automatically on the next daily run.`;
+    return `${gaps.length} days of Google data are missing between ${first} and ${last}. A completed Search Console refresh can retry these days.`;
   }
-  return `${gaps.length} days of Google data are missing between ${first} and ${last}. Up to ${repullCapPerNight} missing days are recovered on each daily run.`;
+  return `${gaps.length} days of Google data are missing between ${first} and ${last}. Each completed Search Console refresh can retry up to ${repullCapPerNight} missing days.`;
 }
